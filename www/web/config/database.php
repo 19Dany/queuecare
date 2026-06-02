@@ -18,14 +18,25 @@ class Database
     private function __construct() {
         date_default_timezone_set('Africa/Douala');
 
-        // Railway : surcharger avec les variables d'environnement
-        if (getenv('DB_HOST')) $this->host   = getenv('DB_HOST');
-        if (getenv('DB_NAME')) $this->dbname = getenv('DB_NAME');
-        if (getenv('DB_USER')) $this->user   = getenv('DB_USER');
-        if (getenv('DB_PASS')) $this->pass   = getenv('DB_PASS');
-        if (getenv('DB_PORT')) $this->port   = (int) getenv('DB_PORT');
+        // Railway : surcharger avec les variables MySQL ou les variables locales
+        $this->host = $this->envValue(['MYSQLHOST', 'DB_HOST'], $this->host);
+        $this->dbname = $this->envValue(['MYSQLDATABASE', 'DB_NAME'], $this->dbname);
+        $this->user = $this->envValue(['MYSQLUSER', 'DB_USER'], $this->user);
+        $this->pass = $this->envValue(['MYSQLPASSWORD', 'DB_PASS'], $this->pass);
+        $this->port = (int) $this->envValue(['MYSQLPORT', 'DB_PORT'], (string) $this->port);
     }
     private function __clone() {}
+
+    private function envValue(array $keys, string $default): string
+    {
+        foreach ($keys as $key) {
+            $value = getenv($key);
+            if ($value !== false && $value !== '') {
+                return $value;
+            }
+        }
+        return $default;
+    }
 
     public static function getInstance(): self
     {

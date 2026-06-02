@@ -1,13 +1,23 @@
 <?php
 // ─── Configuration BDD ────────────────────────────────────────
-// Lit les variables d'environnement Railway en production
+// Lit les variables Railway MySQL en production
 // Sinon utilise les valeurs locales (WAMP/Docker)
 
-define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
-define('DB_NAME', getenv('DB_NAME') ?: 'files_attente');
-define('DB_USER', getenv('DB_USER') ?: 'root');
-define('DB_PASS', getenv('DB_PASS') ?: '');
-define('DB_PORT', getenv('DB_PORT') ?: '3306');
+function envValue(array $keys, string $default): string {
+    foreach ($keys as $key) {
+        $value = getenv($key);
+        if ($value !== false && $value !== '') {
+            return $value;
+        }
+    }
+    return $default;
+}
+
+define('DB_HOST', envValue(['MYSQLHOST', 'DB_HOST'], 'localhost'));
+define('DB_NAME', envValue(['MYSQLDATABASE', 'DB_NAME'], 'files_attente'));
+define('DB_USER', envValue(['MYSQLUSER', 'DB_USER'], 'root'));
+define('DB_PASS', envValue(['MYSQLPASSWORD', 'DB_PASS'], ''));
+define('DB_PORT', envValue(['MYSQLPORT', 'DB_PORT'], '3306'));
 define('JWT_SECRET', getenv('JWT_SECRET') ?: 'queuecare_secret_2024');
 
 function getDB(): PDO {
