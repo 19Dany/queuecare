@@ -1,10 +1,46 @@
 <?php
-$auth    = requireAuth();
-$body    = getBody();
-$token   = trim($body['qr_code'] ?? $body['token'] ?? '');
-$motif   = trim($body['motif']   ?? '');
+$auth = requireAuth();
+$body = getBody();
+$rawQr = trim($body['qr_code'] ?? $body['token'] ?? '');
+$motif = trim($body['motif'] ?? '');
 
-if (!$token) jsonError('qr_code requis', 'MISSING_FIELDS');
+if (!$rawQr) {
+    jsonError('qr_code requis', 'MISSING_FIELDS');
+}
+
+function extractQrToken(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('/[a-f0-9]{64}/i', $value, $matches)) {
+        return $matches[0];
+    }
+
+    $parts = parse_url($value);
+    if (!is_array($parts)) {
+        return $value;
+    }
+
+    if (!empty($parts['query'])) {
+        parse_str($parts['query'], $query);
+        foreach (['token', 'qr_token', 'code'] as $key) {
+            if (!empty($query[$key])) {
+                return trim((string) $query[$key]);
+            }
+        }
+    }
+
+    return $value;
+}
+
+$token = extractQrToken($rawQr);
+
+if (!$token) {
+    jsonError('Token QR invalide', 'INVALID_QR', 400);
+}
 
 $db = getDB();
 
@@ -24,9 +60,11 @@ $stmt = $db->prepare(
 $stmt->execute([$token]);
 $qr = $stmt->fetch();
 
-if (!$qr) jsonError('QR code invalide ou expiré', 'INVALID_QR', 404);
+if (!$qr) {
+    jsonError('QR code invalide ou expire', 'INVALID_QR', 404);
+}
 
-// 2. Vérifier qu'il n'a pas déjà un ticket actif aujourd'hui
+// 2. Verifier qu'il n'a pas deja un ticket actif aujourd'hui
 $stmt = $db->prepare(
     "SELECT id FROM consultations
      WHERE patient_id = ? AND sous_service_id = ?
@@ -36,7 +74,7 @@ $stmt = $db->prepare(
 );
 $stmt->execute([$auth['sub'], $qr['sous_service_id']]);
 if ($stmt->fetch()) {
-    jsonError('Vous avez déjà un ticket actif pour ce service aujourd\'hui', 'DUPLICATE_TICKET', 409);
+    jsonError('Vous avez deja un ticket actif pour ce service aujourd\'hui', 'DUPLICATE_TICKET', 409);
 }
 
 // 3. Calculer le rang (nombre de tickets actifs aujourd'hui)
@@ -49,13 +87,13 @@ $stmt = $db->prepare(
 $stmt->execute([$qr['sous_service_id']]);
 $rang = (int) $stmt->fetch()['nb'] + 1;
 
-// 4. Calculer l'heure de passage estimée
+// 4. Calculer l'heure de passage estimee
 // duree_estimee est en secondes
-$dureeSecondes    = (int) $qr['duree_estimee'] ?: (int) $qr['duree_rdv_defaut'];
+$dureeSecondes = (int) $qr['duree_estimee'] ?: (int) $qr['duree_rdv_defaut'];
 $tempsAttenteSecondes = ($rang - 1) * $dureeSecondes;
-$heurePassage     = date('Y-m-d H:i:s', time() + $tempsAttenteSecondes);
+$heurePassage = date('Y-m-d H:i:s', time() + $tempsAttenteSecondes);
 
-// 5. Créer la consultation
+// 5. Creer la consultation
 $stmt = $db->prepare(
     "INSERT INTO consultations
        (patient_id, sous_service_id, qr_code_id, statut, rang,
@@ -73,36 +111,36 @@ $stmt->execute([
 ]);
 $consultationId = (int) $db->lastInsertId();
 
-// 6. Incrémenter le scan_count du QR
+// 6. Incrementer le scan_count du QR
 $db->prepare("UPDATE qr_codes SET scan_count = scan_count + 1 WHERE id = ?")
    ->execute([$qr['qr_id']]);
 
-// 7. Créer une notification de confirmation
+// 7. Creer une notification de confirmation
 $db->prepare(
     "INSERT INTO notifications (patient_id, consultation_id, type, contenu, canal, statut)
      VALUES (?, ?, 'CONFIRMATION', ?, 'FCM', 'en_attente')"
 )->execute([
     $auth['sub'],
     $consultationId,
-    "Ticket #{$rang} créé pour {$qr['ss_nom']}. Passage estimé à " . date('H:i', strtotime($heurePassage)),
+    "Ticket #{$rang} cree pour {$qr['ss_nom']}. Passage estime a " . date('H:i', strtotime($heurePassage)),
 ]);
 
 jsonSuccess([
-    'consultation_id'       => $consultationId,
-    'rang'                  => $rang,
-    'heure_estimee'         => $heurePassage,
+    'consultation_id' => $consultationId,
+    'rang' => $rang,
+    'heure_estimee' => $heurePassage,
     'heure_passage_estimee' => $heurePassage,
-    'message'               => "Ticket #{$rang} créé. Passage estimé à " . date('H:i', strtotime($heurePassage)),
+    'message' => "Ticket #{$rang} cree. Passage estime a " . date('H:i', strtotime($heurePassage)),
     'consultation' => [
-        'id'                    => $consultationId,
-        'statut'                => 'en_attente',
-        'rang'                  => $rang,
+        'id' => $consultationId,
+        'statut' => 'en_attente',
+        'rang' => $rang,
         'heure_passage_estimee' => $heurePassage,
-        'heure_emission'        => date('Y-m-d H:i:s'),
-        'mode_prise'            => 'QR_CODE',
-        'motif'                 => $motif ?: null,
-        'service'               => ['id' => (int)$qr['s_id'],           'nom' => $qr['s_nom']],
-        'sousService'           => ['id' => (int)$qr['sous_service_id'], 'nom' => $qr['ss_nom']],
-        'sous_service'          => ['id' => (int)$qr['sous_service_id'], 'nom' => $qr['ss_nom']],
+        'heure_emission' => date('Y-m-d H:i:s'),
+        'mode_prise' => 'QR_CODE',
+        'motif' => $motif ?: null,
+        'service' => ['id' => (int) $qr['s_id'], 'nom' => $qr['s_nom']],
+        'sousService' => ['id' => (int) $qr['sous_service_id'], 'nom' => $qr['ss_nom']],
+        'sous_service' => ['id' => (int) $qr['sous_service_id'], 'nom' => $qr['ss_nom']],
     ],
 ]);
