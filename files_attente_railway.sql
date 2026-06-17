@@ -8,6 +8,7 @@
 -- Version de PHP : 8.0.26
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+SET FOREIGN_KEY_CHECKS = 0;
 START TRANSACTION;
 SET time_zone = "+00:00";
 
@@ -965,7 +966,7 @@ CREATE ALGORITHM=UNDEFINED SQL SECURITY INVOKER VIEW `v_file_attente`  AS SELECT
 DROP TABLE IF EXISTS `v_qrcodes_actifs`;
 
 DROP VIEW IF EXISTS `v_qrcodes_actifs`;
-CREATE ALGORITHM=UNDEFINED SQL SECURITY INVOKER VIEW `v_qrcodes_actifs`  AS SELECT `qc`.`id` AS `id`, `qc`.`sous_service_id` AS `sous_service_id`, `qc`.`token` AS `token`, `qc`.`qr_code_path` AS `qr_code_path`, `qc`.`expire_at` AS `expire_at`, `qc`.`content` AS `content`, `qc`.`scan_count` AS `scan_count`, `qc`.`statut` AS `statut`, `qc`.`created_at` AS `created_at`, `qc`.`created_by` AS `created_by`, `ss`.`nom` AS `sous_service_nom`, `s`.`nom` AS `service_nom`, `g`.`nom` AS `gestionnaire_nom` FROM (((`qr_codes` `qc` join `sous_services` `ss` on((`ss`.`id` = `qc`.`sous_service_id`))) join `services` `s` on((`s`.`id` = `ss`.`service_id`))) left join `gestionnaires` `g` on((`g`.`id` = `qc`.`created_by`))) WHERE ((`qc`.`statut` = 'actif') AND (`qc`.`expire_at` > now())) ORDER BY `qc`.`created_at` AS `DESCdesc` ASC  ;
+CREATE ALGORITHM=UNDEFINED SQL SECURITY INVOKER VIEW `v_qrcodes_actifs`  AS SELECT `qc`.`id` AS `id`, `qc`.`sous_service_id` AS `sous_service_id`, `qc`.`token` AS `token`, `qc`.`qr_code_path` AS `qr_code_path`, `qc`.`expire_at` AS `expire_at`, `qc`.`content` AS `content`, `qc`.`scan_count` AS `scan_count`, `qc`.`statut` AS `statut`, `qc`.`created_at` AS `created_at`, `qc`.`created_by` AS `created_by`, `ss`.`nom` AS `sous_service_nom`, `s`.`nom` AS `service_nom`, `g`.`nom` AS `gestionnaire_nom` FROM (((`qr_codes` `qc` join `sous_services` `ss` on((`ss`.`id` = `qc`.`sous_service_id`))) join `services` `s` on((`s`.`id` = `ss`.`service_id`))) left join `gestionnaires` `g` on((`g`.`id` = `qc`.`created_by`))) WHERE ((`qc`.`statut` = 'actif') AND (`qc`.`expire_at` > now())) ORDER BY `qc`.`created_at` DESC  ;
 
 -- --------------------------------------------------------
 
@@ -1119,6 +1120,7 @@ CREATE EVENT `event_absence_auto` ON SCHEDULE EVERY 1 MINUTE STARTS '2026-06-08 
 END$$
 
 DELIMITER ;
+SET FOREIGN_KEY_CHECKS = 1;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
