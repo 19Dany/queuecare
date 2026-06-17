@@ -1,5 +1,6 @@
 <?php
 // views/medecin/inscription.php
+// Version mono-service - Plus de sélection d'hôpital, uniquement le sous-service
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -190,47 +191,30 @@
                     <?php endif; ?>
                 </div>
                 
-                <!-- Hôpital / Service -->
+                <!-- Sous-service / Spécialité (direct, sans sélection d'hôpital) -->
                 <div class="med-field">
-                    <label class="med-label" for="service_id">
-                        <i class="fa-solid fa-hospital"></i> Hôpital / Service *
+                    <label class="med-label" for="sous_service_id">
+                        <i class="fa-solid fa-stethoscope"></i> Spécialité / Sous-service *
                     </label>
                     <div class="med-input-wrapper">
-                        <span class="med-input-icon"><i class="fa-solid fa-hospital"></i></span>
-                        <select id="service_id" name="service_id" class="med-input med-select <?= isset($erreurs['service_id']) ? 'error' : '' ?>" required>
-                            <option value="" disabled <?= empty($anciens['serviceId']) ? 'selected' : '' ?>>Sélectionner l'hôpital</option>
-                            <?php foreach ($services as $s): ?>
-                            <option value="<?= (int)$s['id'] ?>" <?= (int)($anciens['serviceId'] ?? 0) === (int)$s['id'] ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($s['nom']) ?>
+                        <span class="med-input-icon"><i class="fa-solid fa-stethoscope"></i></span>
+                        <select id="sous_service_id" name="sous_service_id" class="med-input med-select <?= isset($erreurs['sous_service_id']) ? 'error' : '' ?>" required>
+                            <option value="" disabled <?= empty($anciens['specialiteId']) ? 'selected' : '' ?>>Sélectionner votre sous-service</option>
+                            <?php foreach ($sousServices as $ss): ?>
+                            <option value="<?= (int)$ss['id'] ?>" <?= (int)($anciens['specialiteId'] ?? 0) === (int)$ss['id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($ss['nom']) ?>
+                                <?php if (!empty($ss['capacite_horaire'])): ?>
+                                (<?= $ss['capacite_horaire'] ?> consultations/heure)
+                                <?php endif; ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
                         <span class="med-select-arrow"><i class="fa-solid fa-chevron-down"></i></span>
                     </div>
-                    <?php if (isset($erreurs['service_id'])): ?>
-                    <span class="med-error-msg"><i class="fa-solid fa-circle-exclamation"></i> <?= $erreurs['service_id'] ?></span>
+                    <?php if (isset($erreurs['sous_service_id'])): ?>
+                    <span class="med-error-msg"><i class="fa-solid fa-circle-exclamation"></i> <?= $erreurs['sous_service_id'] ?></span>
                     <?php endif; ?>
-                </div>
-                
-                <!-- Spécialité / Sous-service -->
-                <div class="med-field">
-                    <label class="med-label" for="specialite">
-                        <i class="fa-solid fa-stethoscope"></i> Spécialité / Sous-service *
-                    </label>
-                    <div class="med-input-wrapper">
-                        <span class="med-input-icon"><i class="fa-solid fa-stethoscope"></i></span>
-                        <select id="specialite" name="specialite" class="med-input med-select <?= isset($erreurs['specialite']) ? 'error' : '' ?>" disabled required>
-                            <option value="" disabled selected>— Choisissez d'abord l'hôpital —</option>
-                        </select>
-                        <span class="med-select-arrow"><i class="fa-solid fa-chevron-down"></i></span>
-                        <span id="ssLoading" style="display:none; position:absolute; right:36px; top:50%; transform:translateY(-50%);">
-                            <i class="fa-solid fa-spinner fa-spin" style="color: var(--primary-blue);"></i>
-                        </span>
-                    </div>
-                    <?php if (isset($erreurs['specialite'])): ?>
-                    <span class="med-error-msg"><i class="fa-solid fa-circle-exclamation"></i> <?= $erreurs['specialite'] ?></span>
-                    <?php endif; ?>
-                    <small class="med-small"><i class="fa-solid fa-circle-info"></i> Choisissez d'abord l'hôpital pour voir les sous-services disponibles</small>
+                    <small class="med-small"><i class="fa-solid fa-circle-info"></i> Sélectionnez votre spécialité médicale</small>
                 </div>
                 
                 <!-- Mot de passe -->
@@ -287,13 +271,6 @@
 </div>
 
 <script>
-// Variables
-const API_SS = 'medecin.php?action=api_sous_services&service_id=';
-const selService = document.getElementById('service_id');
-const selSpec = document.getElementById('specialite');
-const ssLoading = document.getElementById('ssLoading');
-const ancienSpecialite = <?= json_encode($anciens['specialite'] ?? '') ?>;
-
 // Aperçu de la photo
 const photoInput = document.getElementById('photoInput');
 const photoPreview = document.getElementById('photoPreview');
@@ -308,64 +285,6 @@ photoInput.addEventListener('change', function(e) {
         reader.readAsDataURL(file);
     }
 });
-
-// Chargement des sous-services
-function loadSousServices(serviceId) {
-    if (!serviceId) {
-        selSpec.innerHTML = '<option value="" disabled selected>— Choisissez d\'abord l\'hôpital —</option>';
-        selSpec.disabled = true;
-        return;
-    }
-    
-    ssLoading.style.display = '';
-    selSpec.disabled = true;
-    
-    fetch(API_SS + encodeURIComponent(serviceId))
-        .then(response => response.json())
-        .then(data => {
-            ssLoading.style.display = 'none';
-            selSpec.innerHTML = '';
-            
-            if (!data || data.length === 0) {
-                selSpec.innerHTML = '<option value="" disabled selected>Aucun sous-service disponible</option>';
-                selSpec.disabled = true;
-            } else {
-                const defaultOption = document.createElement('option');
-                defaultOption.value = '';
-                defaultOption.disabled = true;
-                defaultOption.selected = true;
-                defaultOption.textContent = 'Sélectionner votre spécialité';
-                selSpec.appendChild(defaultOption);
-                
-                data.forEach(ss => {
-                    const option = document.createElement('option');
-                    option.value = ss.nom;
-                    option.textContent = ss.nom + (ss.capacite_horaire ? ` (${ss.capacite_horaire}/h)` : '');
-                    if (ancienSpecialite && option.value === ancienSpecialite) {
-                        option.selected = true;
-                        selSpec.disabled = false;
-                    }
-                    selSpec.appendChild(option);
-                });
-                selSpec.disabled = false;
-            }
-        })
-        .catch(error => {
-            ssLoading.style.display = 'none';
-            selSpec.innerHTML = '<option value="" disabled selected>Erreur — réessayez</option>';
-            selSpec.disabled = true;
-        });
-}
-
-// Écouteur de changement d'hôpital
-selService.addEventListener('change', function() {
-    loadSousServices(this.value);
-});
-
-// Restaurer après validation
-<?php if (!empty($anciens['serviceId'])): ?>
-loadSousServices(<?= (int)$anciens['serviceId'] ?>);
-<?php endif; ?>
 
 // Toggle mot de passe
 const pwInput = document.getElementById('password');

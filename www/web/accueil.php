@@ -1,891 +1,990 @@
+<?php
+
+if (isset($_SESSION['user_id']) && isset($_SESSION['role'])) {
+    require_once __DIR__ . '/helpers/AuthHelper.php';
+    
+    switch($_SESSION['role']) {
+        case 'admin':
+            header('Location: admin.php');
+            exit;
+        case 'medecin':
+            header('Location: medecin.php');
+            exit;
+        case 'gestionnaire':
+            header('Location: gestionnaire.php');
+            exit;
+        default:
+            break;
+    }
+}
+
+$pageTitle  = "QueueCare - Gestion des files d'attente hospitalières";
+$currentYear = date('Y');
+?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QueueCare — Plateforme Santé</title>
-  <link rel="preconnect" href="https://fonts.bunny.net">
-  <link href="https://fonts.bunny.net/css?family=playfair-display:400,500,600,700,800|outfit:300,400,500,600,700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="stylesheet" href="public/css/style.css">
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      min-height: 100vh;
-      font-family: 'Outfit', sans-serif;
-      background: linear-gradient(135deg, #0a2b5e 0%, #1a4db5 50%, #0a5c36 100%);
-      position: relative;
-      overflow-x: hidden;
-    }
-
-    /* ========== ANIMATIONS DE FOND ========== */
-    .medical-bg {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      z-index: 0;
-    }
-
-    .medical-bg svg {
-      position: absolute;
-      opacity: 0.08;
-    }
-
-    /* Icônes flottantes */
-    .floating-icon {
-      position: absolute;
-      font-size: 2rem;
-      color: white;
-      opacity: 0.12;
-      animation: float 8s ease-in-out infinite;
-      pointer-events: none;
-    }
-
-    @keyframes float {
-      0%, 100% { transform: translateY(0) rotate(0deg); }
-      50% { transform: translateY(-20px) rotate(5deg); }
-    }
-
-    @keyframes floatReverse {
-      0%, 100% { transform: translateY(0) rotate(0deg); }
-      50% { transform: translateY(20px) rotate(-5deg); }
-    }
-
-    .floating-icon:nth-child(1) { top: 10%; left: 5%; font-size: 4rem; animation-duration: 10s; }
-    .floating-icon:nth-child(2) { top: 20%; right: 8%; font-size: 3rem; animation-duration: 12s; animation-name: floatReverse; }
-    .floating-icon:nth-child(3) { bottom: 15%; left: 10%; font-size: 3.5rem; animation-duration: 14s; }
-    .floating-icon:nth-child(4) { bottom: 25%; right: 15%; font-size: 2.8rem; animation-duration: 9s; animation-name: floatReverse; }
-    .floating-icon:nth-child(5) { top: 50%; left: 15%; font-size: 2.5rem; animation-duration: 11s; }
-    .floating-icon:nth-child(6) { top: 60%; right: 20%; font-size: 3.2rem; animation-duration: 13s; animation-name: floatReverse; }
-    .floating-icon:nth-child(7) { top: 75%; left: 20%; font-size: 2rem; animation-duration: 7s; }
-    .floating-icon:nth-child(8) { top: 30%; left: 30%; font-size: 2.2rem; animation-duration: 15s; }
-    .floating-icon:nth-child(9) { bottom: 40%; right: 35%; font-size: 3rem; animation-duration: 11s; }
-    .floating-icon:nth-child(10) { top: 80%; right: 45%; font-size: 2.5rem; animation-duration: 9s; }
-
-    /* Cercles décoratifs */
-    .deco-circle {
-      position: absolute;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(255,255,255,0.1), transparent);
-      pointer-events: none;
-    }
-
-    .deco-circle-1 { width: 600px; height: 600px; top: -200px; right: -200px; }
-    .deco-circle-2 { width: 400px; height: 400px; bottom: -150px; left: -150px; }
-    .deco-circle-3 { width: 200px; height: 200px; top: 50%; left: 50%; transform: translate(-50%, -50%); }
-
-    /* ========== BOUTON PARAMÈTRES ========== */
-    .settings-btn {
-      position: fixed;
-      top: 25px;
-      left: 25px;
-      width: 52px;
-      height: 52px;
-      background: rgba(255, 255, 255, 0.95);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      z-index: 100;
-      border: none;
-      backdrop-filter: blur(4px);
-    }
-
-    .settings-btn:hover {
-      transform: rotate(90deg) scale(1.05);
-      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
-      background: white;
-    }
-
-    .settings-btn i {
-      font-size: 1.5rem;
-      color: #1a4db5;
-    }
-
-    /* ========== MENU LATÉRAL ========== */
-    .services-menu {
-      position: fixed;
-      top: 0;
-      left: -380px;
-      width: 380px;
-      height: 100vh;
-      background: white;
-      box-shadow: 4px 0 30px rgba(0, 0, 0, 0.15);
-      transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-      z-index: 200;
-      overflow-y: auto;
-      border-radius: 0 20px 20px 0;
-    }
-
-    .services-menu.open {
-      left: 0;
-    }
-
-    .services-menu-header {
-      background: linear-gradient(135deg, #0a2b5e, #1a4db5);
-      padding: 28px 24px;
-      color: white;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .services-menu-header h3 {
-      font-family: 'Playfair Display', serif;
-      font-size: 1.3rem;
-      font-weight: 700;
-    }
-
-    .services-menu-header h3 i {
-      margin-right: 10px;
-      color: #4ade80;
-    }
-
-    .close-menu {
-      background: rgba(255, 255, 255, 0.15);
-      border: none;
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      cursor: pointer;
-      color: white;
-      font-size: 1.1rem;
-      transition: all 0.2s;
-    }
-
-    .close-menu:hover {
-      background: rgba(255, 255, 255, 0.3);
-      transform: rotate(90deg);
-    }
-
-    .services-list {
-      padding: 24px;
-    }
-
-    .service-item {
-      background: #f8faff;
-      border-radius: 16px;
-      padding: 20px;
-      margin-bottom: 16px;
-      border: 1px solid #e2e8f0;
-      transition: all 0.25s;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      text-decoration: none;
-    }
-
-    .service-item:hover {
-      border-color: #1a4db5;
-      background: #eff6ff;
-      transform: translateX(8px);
-    }
-
-    .service-icon {
-      width: 52px;
-      height: 52px;
-      background: linear-gradient(135deg, #1a4db5, #2563eb);
-      border-radius: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 1.3rem;
-    }
-
-    .service-info h4 {
-      color: #0a2b5e;
-      margin-bottom: 6px;
-      font-size: 1rem;
-      font-weight: 700;
-    }
-
-    .service-info p {
-      color: #6b83a8;
-      font-size: 0.75rem;
-    }
-
-    .overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      backdrop-filter: blur(3px);
-      z-index: 150;
-      display: none;
-    }
-
-    .overlay.active {
-      display: block;
-    }
-
-    /* ========== CONTENEUR PRINCIPAL ========== */
-    .main-container {
-      position: relative;
-      z-index: 10;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 40px 20px;
-    }
-
-    /* ========== CARTE DE CONNEXION ========== */
-    .login-card {
-      background: rgba(255, 255, 255, 0.98);
-      backdrop-filter: blur(10px);
-      border-radius: 40px;
-      box-shadow: 0 30px 70px rgba(0, 0, 0, 0.25);
-      width: 100%;
-      max-width: 500px;
-      overflow: hidden;
-      animation: fadeInUp 0.5s ease-out;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-    }
-
-    @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(40px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    /* En-tête de la carte */
-    .login-header {
-      background: linear-gradient(135deg, #0a2b5e, #1a4db5);
-      padding: 36px 32px;
-      text-align: center;
-      color: white;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .login-header::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -50%;
-      width: 200%;
-      height: 200%;
-      background: radial-gradient(circle, rgba(255,255,255,0.1) 1%, transparent 1%);
-      background-size: 30px 30px;
-      pointer-events: none;
-    }
-
-    .login-logo {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      font-size: 1.8rem;
-      font-weight: 800;
-      font-family: 'Playfair Display', serif;
-      margin-bottom: 20px;
-    }
-
-    .login-logo i {
-      font-size: 2.2rem;
-      color: #4ade80;
-    }
-
-    .login-header h1 {
-      font-size: 1.6rem;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-
-    .login-header p {
-      font-size: 0.9rem;
-      opacity: 0.85;
-    }
-
-    /* Corps de la carte */
-    .login-body {
-      padding: 36px 32px;
-    }
-
-    /* Badge de rôle */
-    .role-badge {
-      text-align: center;
-      margin-bottom: 28px;
-    }
-
-    .badge-role {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      background: linear-gradient(135deg, #d1fae5, #a7f3d0);
-      color: #0a5c36;
-      padding: 8px 20px;
-      border-radius: 40px;
-      font-size: 0.8rem;
-      font-weight: 700;
-    }
-
-    .badge-role i {
-      font-size: 1rem;
-    }
-
-    /* Champs de formulaire */
-    .form-group {
-      margin-bottom: 24px;
-    }
-
-    .form-group label {
-      display: block;
-      font-size: 0.75rem;
-      font-weight: 700;
-      color: #0d2d6b;
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .form-group label i {
-      margin-right: 6px;
-      color: #1a4db5;
-    }
-
-    .input-wrapper {
-      position: relative;
-    }
-
-    .input-icon {
-      position: absolute;
-      left: 16px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: #6b83a8;
-      font-size: 1rem;
-    }
-
-    .form-input {
-      width: 100%;
-      padding: 14px 16px 14px 48px;
-      border: 2px solid #e2e8f0;
-      border-radius: 16px;
-      font-family: 'Outfit', sans-serif;
-      font-size: 0.95rem;
-      transition: all 0.2s;
-      background: #f8faff;
-    }
-
-    .form-input:focus {
-      outline: none;
-      border-color: #1a4db5;
-      background: white;
-      box-shadow: 0 0 0 4px rgba(26, 77, 181, 0.1);
-    }
-
-    /* Options ligne */
-    .form-options {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 28px;
-    }
-
-    .checkbox-wrapper {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-    }
-
-    .checkbox-wrapper input {
-      width: 18px;
-      height: 18px;
-      accent-color: #1a8a52;
-      cursor: pointer;
-    }
-
-    .checkbox-wrapper span {
-      font-size: 0.85rem;
-      color: #4a6fa5;
-    }
-
-    .forgot-link {
-      font-size: 0.85rem;
-      color: #1a4db5;
-      text-decoration: none;
-      font-weight: 600;
-      transition: color 0.2s;
-    }
-
-    .forgot-link:hover {
-      color: #0a2b5e;
-      text-decoration: underline;
-    }
-
-    /* Bouton de connexion */
-    .login-btn {
-      width: 100%;
-      padding: 16px;
-      background: linear-gradient(135deg, #1a8a52, #0a5c36);
-      color: white;
-      border: none;
-      border-radius: 16px;
-      font-size: 1rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-    }
-
-    .login-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(26, 138, 82, 0.35);
-    }
-
-    /* Lien création de compte */
-    .register-section {
-      text-align: center;
-      margin-top: 28px;
-      padding-top: 24px;
-      border-top: 1px solid #e2e8f0;
-    }
-
-    .register-section p {
-      font-size: 0.9rem;
-      color: #64748b;
-    }
-
-    .register-link {
-      color: #1a4db5;
-      text-decoration: none;
-      font-weight: 700;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: gap 0.2s;
-    }
-
-    .register-link:hover {
-      gap: 10px;
-      text-decoration: underline;
-    }
-
-    /* Messages */
-    .error-msg, .success-msg {
-      padding: 14px 18px;
-      border-radius: 14px;
-      margin-bottom: 24px;
-      font-size: 0.85rem;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      animation: slideIn 0.3s ease;
-    }
-
-    @keyframes slideIn {
-      from {
-        opacity: 0;
-        transform: translateY(-10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .error-msg {
-      background: #fee2e2;
-      color: #991b1b;
-      border-left: 4px solid #ef4444;
-    }
-
-    .success-msg {
-      background: #d1fae5;
-      color: #065f46;
-      border-left: 4px solid #10b981;
-    }
-
-    /* ========== ICÔNES DE NAVIGATION EN BAS ========== */
-    .nav-icons {
-      position: fixed;
-      bottom: 30px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      gap: 15px;
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(10px);
-      padding: 8px 12px;
-      border-radius: 60px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-      z-index: 100;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-    }
-
-    .nav-icon {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-      cursor: pointer;
-      padding: 10px 28px;
-      border-radius: 50px;
-      transition: all 0.3s ease;
-      background: transparent;
-      border: none;
-      font-family: 'Outfit', sans-serif;
-    }
-
-    .nav-icon i {
-      font-size: 1.6rem;
-      transition: all 0.3s ease;
-    }
-
-    .nav-icon span {
-      font-size: 0.7rem;
-      font-weight: 600;
-      transition: all 0.3s ease;
-    }
-
-    /* Gestionnaire */
-    .nav-icon.gestionnaire i {
-      color: #1a8a52;
-    }
-    .nav-icon.gestionnaire span {
-      color: #1a8a52;
-    }
-    .nav-icon.gestionnaire.active {
-      background: linear-gradient(135deg, #1a8a52, #0a5c36);
-    }
-    .nav-icon.gestionnaire.active i,
-    .nav-icon.gestionnaire.active span {
-      color: white;
-    }
-
-    /* Médecin */
-    .nav-icon.medecin i {
-      color: #1a4db5;
-    }
-    .nav-icon.medecin span {
-      color: #1a4db5;
-    }
-    .nav-icon.medecin.active {
-      background: linear-gradient(135deg, #1a4db5, #0a2b5e);
-    }
-    .nav-icon.medecin.active i,
-    .nav-icon.medecin.active span {
-      color: white;
-    }
-
-    /* Responsive */
-    @media (max-width: 640px) {
-      .nav-icons {
-        bottom: 20px;
-        gap: 8px;
-        padding: 6px 10px;
-      }
-      .nav-icon {
-        padding: 8px 16px;
-      }
-      .nav-icon i {
-        font-size: 1.3rem;
-      }
-      .login-card {
-        margin-bottom: 80px;
-      }
-      .login-header {
-        padding: 28px 24px;
-      }
-      .login-body {
-        padding: 28px 24px;
-      }
-      .services-menu {
-        width: 320px;
-        left: -320px;
-      }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="QueueCare - Solution de gestion intelligente des files d'attente pour établissements de santé">
+    <title><?= $pageTitle ?></title>
+
+    <link href="https://fonts.bunny.net/css?family=playfair-display:400,600,700,800|outfit:300,400,500,600,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+        :root {
+            --blue-dark : #0a2b5e;
+            --blue      : #1a4db5;
+            --blue-light: #2563eb;
+            --green     : #10b981;
+            --amber     : #f59e0b;
+            --text      : #1e293b;
+            --muted     : #64748b;
+            --border    : #e2e8f0;
+            --bg        : #f8fafc;
+            --white     : #ffffff;
+            --radius    : 16px;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--white);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* ── Animations ──────────────────────────────────── */
+        @keyframes fadeUp  { from { opacity:0; transform:translateY(28px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes floatY  { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-14px); } }
+        @keyframes gradBG  { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
+
+        .anim-fade-up { animation: fadeUp .8s ease both; }
+
+        /* ── Nav ─────────────────────────────────────────── */
+        .nav {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 40px;
+        }
+
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: white;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.15rem;
+            letter-spacing: -.01em;
+        }
+
+        .nav-logo-icon {
+            width: 36px; height: 36px;
+            background: rgba(255,255,255,.2);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: .9rem;
+        }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 8px 18px;
+            border-radius: 50px;
+            font-family: 'Outfit', sans-serif;
+            font-size: .875rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: all .2s;
+        }
+
+        .nav-btn-ghost {
+            background: rgba(255,255,255,.15);
+            color: white;
+            border: 1.5px solid rgba(255,255,255,.35);
+        }
+        .nav-btn-ghost:hover { background: rgba(255,255,255,.28); }
+
+        .nav-btn-white {
+            background: white;
+            color: var(--blue);
+        }
+        .nav-btn-white:hover { opacity:.9; transform:translateY(-1px); }
+
+        /* ── Hero ─────────────────────────────────────────── */
+        .hero {
+            background: linear-gradient(135deg, #0a2b5e 0%, #1a4db5 55%, #2563eb 100%);
+            background-size: 200% 200%;
+            animation: gradBG 18s ease infinite;
+            min-height: 100vh;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: white;
+            padding: 120px 20px 80px;
+        }
+
+        /* Wave décoratif bas du hero */
+        .hero::after {
+            content: '';
+            position: absolute;
+            bottom: -2px; left: 0; right: 0;
+            height: 80px;
+            background: var(--white);
+            clip-path: ellipse(55% 100% at 50% 100%);
+        }
+
+        /* Cercles déco */
+        .hero-deco {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255,255,255,.06);
+            pointer-events: none;
+        }
+        .hero-deco-1 { width:420px; height:420px; top:-120px; right:-100px; }
+        .hero-deco-2 { width:280px; height:280px; bottom:40px; left:-80px; }
+
+        .hero-inner {
+            position: relative;
+            z-index: 2;
+            max-width: 680px;
+            animation: fadeUp .9s ease both;
+        }
+
+        .hero-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            background: rgba(255,255,255,.18);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,.3);
+            padding: 6px 18px;
+            border-radius: 50px;
+            font-size: .8rem;
+            font-weight: 500;
+            margin-bottom: 22px;
+            letter-spacing: .03em;
+        }
+
+        .hero-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+            animation: floatY 3.5s ease-in-out infinite;
+        }
+
+        .hero h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(2.2rem, 6vw, 3.6rem);
+            font-weight: 800;
+            margin-bottom: 14px;
+            line-height: 1.1;
+        }
+
+        .hero-sub {
+            font-size: clamp(.95rem, 2.5vw, 1.15rem);
+            opacity: .92;
+            margin-bottom: 36px;
+            line-height: 1.6;
+        }
+
+        /* ── Boutons hero ─────────────────────────────────── */
+        .hero-btns {
+            display: flex;
+            gap: 14px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .hbtn {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            padding: 13px 28px;
+            border-radius: 50px;
+            font-family: 'Outfit', sans-serif;
+            font-size: .95rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: transform .2s, box-shadow .2s, opacity .2s;
+        }
+        .hbtn:hover { transform: translateY(-3px); }
+
+        .hbtn-primary {
+            background: white;
+            color: var(--blue);
+            box-shadow: 0 4px 18px rgba(0,0,0,.2);
+        }
+        .hbtn-primary:hover { box-shadow: 0 8px 28px rgba(0,0,0,.28); }
+
+        .hbtn-outline {
+            background: transparent;
+            color: white;
+            border: 2px solid rgba(255,255,255,.65);
+        }
+        .hbtn-outline:hover { background: rgba(255,255,255,.12); }
+
+        .hbtn-register {
+            background: var(--green);
+            color: white;
+            box-shadow: 0 4px 18px rgba(16,185,129,.35);
+        }
+        .hbtn-register:hover { opacity:.9; box-shadow: 0 8px 28px rgba(16,185,129,.45); }
+
+        /* ── Sections communes ────────────────────────────── */
+        .section { padding: 72px 20px; }
+        .section-alt { background: var(--bg); }
+
+        .container { max-width: 1100px; margin: 0 auto; }
+
+        .sec-header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        .sec-header h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(1.6rem, 4vw, 2.3rem);
+            color: var(--blue-dark);
+            margin-bottom: 10px;
+        }
+
+        .sec-header p {
+            font-size: 1rem;
+            color: var(--muted);
+            max-width: 520px;
+            margin: 0 auto;
+        }
+
+        /* ── Features ─────────────────────────────────────── */
+        .feat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+
+        .feat-card {
+            background: var(--white);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px 24px;
+            transition: transform .25s, box-shadow .25s;
+        }
+        .feat-card:hover { transform: translateY(-6px); box-shadow: 0 16px 36px rgba(0,0,0,.08); }
+
+        .feat-icon {
+            width: 52px; height: 52px;
+            border-radius: 12px;
+            background: #eff6ff;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--blue);
+            font-size: 1.3rem;
+            margin-bottom: 16px;
+        }
+
+        .feat-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 7px; color: var(--blue-dark); }
+        .feat-card p  { font-size: .875rem; color: var(--muted); line-height: 1.6; }
+
+        /* ── Stats ────────────────────────────────────────── */
+        .stats-band {
+            background: linear-gradient(135deg, var(--blue-dark), var(--blue));
+            color: white;
+            padding: 52px 20px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 32px;
+            text-align: center;
+        }
+
+        .stat-num {
+            font-size: clamp(2rem, 5vw, 2.8rem);
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+
+        .stat-label { font-size: .875rem; opacity: .85; }
+
+        /* ── Inscription section ──────────────────────────── */
+        .register-section {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e8f5f0 100%);
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .register-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 48px;
+            align-items: center;
+        }
+
+        .register-text h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(1.5rem, 3.5vw, 2rem);
+            color: var(--blue-dark);
+            margin-bottom: 14px;
+            line-height: 1.25;
+        }
+
+        .register-text p {
+            color: var(--muted);
+            font-size: .95rem;
+            line-height: 1.7;
+            margin-bottom: 24px;
+        }
+
+        .register-roles {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 28px;
+        }
+
+        .register-role-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: .875rem;
+            color: var(--text);
+        }
+
+        .register-role-icon {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: .8rem;
+            flex-shrink: 0;
+        }
+
+        .role-admin { background: #fef3c7; color: var(--amber); }
+        .role-medecin { background: #dbeafe; color: var(--blue); }
+        .role-gestionnaire { background: #d1fae5; color: var(--green); }
+
+        .register-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 36px 32px;
+            box-shadow: 0 4px 24px rgba(0,0,0,.06);
+        }
+
+        .register-card-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #d1fae5;
+            color: #065f46;
+            font-size: .75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            padding: 4px 12px;
+            border-radius: 50px;
+            margin-bottom: 18px;
+        }
+
+        .register-card h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--blue-dark);
+            margin-bottom: 8px;
+        }
+
+        .register-card > p {
+            font-size: .875rem;
+            color: var(--muted);
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+
+        .register-card-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .reg-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .reg-step-num {
+            width: 26px; height: 26px;
+            border-radius: 50%;
+            background: var(--blue);
+            color: white;
+            font-size: .75rem;
+            font-weight: 700;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .reg-step-text strong { display: block; font-size: .875rem; color: var(--text); }
+        .reg-step-text span   { font-size: .8rem; color: var(--muted); }
+
+        .reg-cta-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .reg-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 20px;
+            border-radius: 10px;
+            font-family: 'Outfit', sans-serif;
+            font-size: .9rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+            transition: all .2s;
+        }
+
+        .reg-btn-primary {
+            background: var(--blue);
+            color: white;
+        }
+        .reg-btn-primary:hover { background: var(--blue-dark); transform: translateY(-1px); }
+
+        .reg-btn-secondary {
+            background: var(--bg);
+            color: var(--text);
+            border: 1.5px solid var(--border);
+        }
+        .reg-btn-secondary:hover { background: var(--border); }
+
+        .reg-note {
+            font-size: .75rem;
+            color: var(--muted);
+            text-align: center;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        /* ── Espaces ──────────────────────────────────────── */
+        .spaces-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 20px;
+        }
+
+        .space-card {
+            background: var(--white);
+            border: 1.5px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px 22px;
+            text-align: center;
+            text-decoration: none;
+            display: block;
+            transition: transform .25s, box-shadow .25s, border-color .25s;
+        }
+        .space-card:hover { transform: translateY(-5px); box-shadow: 0 12px 30px rgba(0,0,0,.08); border-color: var(--blue); }
+
+        .space-icon {
+            width: 60px; height: 60px;
+            border-radius: 50%;
+            background: var(--bg);
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 16px;
+            font-size: 1.5rem;
+        }
+
+        .space-card h3 { font-size: 1rem; font-weight: 600; color: var(--blue-dark); margin-bottom: 8px; }
+        .space-card p  { font-size: .85rem; color: var(--muted); line-height: 1.55; }
+
+        .space-card.medecin .space-icon { color: var(--blue); }
+        .space-card.gestionnaire .space-icon { color: var(--green); }
+        .space-card.admin .space-icon { color: var(--amber); }
+
+        /* ── CTA final ────────────────────────────────────── */
+        .cta-section {
+            background: linear-gradient(135deg, var(--blue-dark), var(--blue));
+            color: white;
+            text-align: center;
+            padding: 64px 20px;
+        }
+
+        .cta-section h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(1.4rem, 3.5vw, 2rem);
+            margin-bottom: 12px;
+        }
+
+        .cta-section p { opacity: .88; margin-bottom: 28px; font-size: .95rem; }
+
+        .cta-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+        /* ── Footer ───────────────────────────────────────── */
+        .footer {
+            background: #0f172a;
+            color: #94a3b8;
+            text-align: center;
+            padding: 32px 20px;
+            font-size: .85rem;
+        }
+
+        .footer-sep { margin: 8px 0; opacity: .3; }
+
+        /* ── Grille 3 cartes inscription ─────────────────── */
+        .register-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .register-cards-grid { grid-template-columns: 1fr; }
+        }
+
+        /* ── Responsive ───────────────────────────────────── */
+        @media (max-width: 768px) {
+            .nav { padding: 16px 20px; }
+            .nav-btn span { display: none; }
+
+            .register-layout {
+                grid-template-columns: 1fr;
+                gap: 32px;
+            }
+
+            .register-card { padding: 28px 22px; }
+
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 480px) {
+            .hero-btns { flex-direction: column; align-items: center; }
+            .hbtn { width: 100%; max-width: 300px; justify-content: center; }
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .cta-btns { flex-direction: column; align-items: center; }
+            .hbtn { font-size: .875rem; }
+            .nav-actions { gap: 6px; }
+        }
+    </style>
 </head>
 <body>
 
-  <!-- Animations de fond médicales -->
-  <div class="medical-bg">
-    <div class="deco-circle deco-circle-1"></div>
-    <div class="deco-circle deco-circle-2"></div>
-    <div class="deco-circle deco-circle-3"></div>
-    
-    <!-- Icônes flottantes -->
-    <div class="floating-icon"><i class="fa-solid fa-heart-pulse"></i></div>
-    <div class="floating-icon"><i class="fa-solid fa-stethoscope"></i></div>
-    <div class="floating-icon"><i class="fa-solid fa-hospital"></i></div>
-    <div class="floating-icon"><i class="fa-solid fa-syringe"></i></div>
-    <div class="floating-icon"><i class="fa-solid fa-capsules"></i></div>
-    <div class="floating-icon"><i class="fa-solid fa-microscope"></i></div>
-    <div class="floating-icon"><i class="fa-solid fa-ambulance"></i></div>
-    <div class="floating-icon"><i class="fa-solid fa-notes-medical"></i></div>
-    <div class="floating-icon"><i class="fa-solid fa-brain"></i></div>
-    <div class="floating-icon"><i class="fa-solid fa-lungs"></i></div>
-  </div>
 
-  <!-- Bouton Paramètres -->
-  <button class="settings-btn" onclick="toggleServicesMenu()">
-    <i class="fa-solid fa-gear"></i>
-  </button>
+<!-- ── Hero ─────────────────────────────────────────────────── -->
+<section class="hero">
+    <!-- Déco -->
+    <div class="hero-deco hero-deco-1"></div>
+    <div class="hero-deco hero-deco-2"></div>
 
-  <!-- Menu latéral des services -->
-  <div id="servicesMenu" class="services-menu">
-    <div class="services-menu-header">
-      <h3><i class="fa-solid fa-hospital"></i> Administration</h3>
-      <button class="close-menu" onclick="toggleServicesMenu()">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
+    <!-- Nav -->
+    <nav class="nav">
+        <a href="accueil.php" class="nav-logo">
+            <div class="nav-logo-icon"><i class="fa-solid fa-hospital"></i></div>
+            QueueCare
+        </a>
+        <div class="nav-actions">
+            <a href="#inscription" class="nav-btn nav-btn-ghost">
+                <i class="fa-solid fa-user-plus"></i>
+                <span>S'inscrire</span>
+            </a>
+            <a href="index.php?action=login" class="nav-btn nav-btn-white">
+                <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                <span>Connexion</span>
+            </a>
+        </div>
+    </nav>
+
+    <div class="hero-inner">
+        <div class="hero-pill">
+            <i class="fa-solid fa-shield-halved"></i> Solution hospitalière certifiée
+        </div>
+        <div class="hero-icon">
+            <i class="fa-solid fa-hospital-user"></i>
+        </div>
+        <h1>QueueCare</h1>
+        <p class="hero-sub">
+            La solution intelligente pour gérer les files d'attente<br>
+            dans vos établissements de santé.
+        </p>
+        <div class="hero-btns">
+            <a href="index.php?action=register_admin" class="hbtn hbtn-register">
+                <i class="fa-solid fa-user-plus"></i> Inscrire mon établissement
+            </a>
+            <a href="index.php?action=login" class="hbtn hbtn-primary">
+                <i class="fa-solid fa-arrow-right-to-bracket"></i> Se connecter
+            </a>
+            <a href="#comment-ca-marche" class="hbtn hbtn-outline">
+                <i class="fa-solid fa-circle-play"></i> Comment ça marche
+            </a>
+        </div>
     </div>
-    <div class="services-list">
-      <a href="service.php?action=liste" class="service-item">
-        <div class="service-icon"><i class="fa-solid fa-building"></i></div>
-        <div class="service-info">
-          <h4>Services Hospitaliers</h4>
-          <p>Créer, modifier ou supprimer les établissements</p>
+</section>
+
+<!-- ── Fonctionnalités ───────────────────────────────────────── -->
+<section class="section section-alt">
+    <div class="container">
+        <div class="sec-header">
+            <h2>Pourquoi choisir QueueCare ?</h2>
+            <p>Une solution complète pour optimiser la gestion de votre établissement</p>
         </div>
-      </a>
-      <a href="service.php?action=sous_services" class="service-item">
-        <div class="service-icon"><i class="fa-solid fa-sitemap"></i></div>
-        <div class="service-info">
-          <h4>Sous-services</h4>
-          <p>Configurer les spécialités par établissement</p>
+        <div class="feat-grid">
+            <div class="feat-card">
+                <div class="feat-icon"><i class="fa-solid fa-clock"></i></div>
+                <h3>Gain de temps</h3>
+                <p>Réduisez l'attente des patients et optimisez le flux de consultations.</p>
+            </div>
+            <div class="feat-card">
+                <div class="feat-icon"><i class="fa-solid fa-chart-line"></i></div>
+                <h3>Statistiques en temps réel</h3>
+                <p>Suivez les performances et identifiez les axes d'amélioration.</p>
+            </div>
+            <div class="feat-card">
+                <div class="feat-icon"><i class="fa-solid fa-qrcode"></i></div>
+                <h3>QR Code intelligent</h3>
+                <p>Générez des QR codes pour une prise de ticket simplifiée.</p>
+            </div>
+            <div class="feat-card">
+                <div class="feat-icon"><i class="fa-solid fa-bell"></i></div>
+                <h3>Notifications push</h3>
+                <p>Tenez les patients informés en temps réel via l'app mobile.</p>
+            </div>
+            <div class="feat-card">
+                <div class="feat-icon"><i class="fa-solid fa-mobile-screen"></i></div>
+                <h3>Application mobile</h3>
+                <p>Une expérience fluide pour les patients sur Android.</p>
+            </div>
+            <div class="feat-card">
+                <div class="feat-icon"><i class="fa-solid fa-shield-alt"></i></div>
+                <h3>Sécurisé</h3>
+                <p>Données protégées et conformes aux normes en vigueur.</p>
+            </div>
         </div>
-      </a>
-      <a href="service.php?action=planning" class="service-item">
-        <div class="service-icon"><i class="fa-solid fa-calendar-week"></i></div>
-        <div class="service-info">
-          <h4>Emplois du temps</h4>
-          <p>Définir les plannings des médecins</p>
-        </div>
-      </a>
     </div>
-  </div>
+</section>
 
-  <!-- Overlay -->
-  <div id="overlay" class="overlay" onclick="toggleServicesMenu()"></div>
-
-  <!-- Icônes de navigation en bas -->
-  <div class="nav-icons">
-    <button class="nav-icon gestionnaire active" onclick="switchToGestionnaire()">
-      <i class="fa-solid fa-user-tie"></i>
-      <span>Gestionnaire</span>
-    </button>
-    <button class="nav-icon medecin" onclick="switchToMedecin()">
-      <i class="fa-solid fa-user-doctor"></i>
-      <span>Médecin</span>
-    </button>
-  </div>
-
-  <!-- Conteneur principal -->
-  <div class="main-container">
-    
-    <!-- Formulaire Gestionnaire -->
-    <div id="gestionnaireForm" class="login-card">
-      <div class="login-header">
-        <div class="login-logo">
-          <i class="fa-solid fa-list-check"></i>
-          <span>QueueCare</span>
-        </div>
-        <h1>Espace Gestionnaire</h1>
-        <p>Gérez la file d'attente et les consultations</p>
-      </div>
-      <div class="login-body">
-        <div class="role-badge">
-          <span class="badge-role">
-            <i class="fa-solid fa-user-tie"></i> Connexion Gestionnaire
-          </span>
-        </div>
-
-        <div id="gestionnaireMessages"></div>
-
-        <form id="gestionnaireLoginForm" method="POST" action="gestionnaire.php?action=connexion">
-          <div class="form-group">
-            <label><i class="fa-solid fa-envelope"></i> Adresse email</label>
-            <div class="input-wrapper">
-              <span class="input-icon"><i class="fa-solid fa-envelope"></i></span>
-              <input type="email" name="email" class="form-input" placeholder="exemple@hopital.cm" required>
+<!-- ── Stats ─────────────────────────────────────────────────── -->
+<div class="stats-band">
+    <div class="container">
+        <div class="stats-grid">
+            <div>
+                <div class="stat-num"><span class="counter" data-target="5000">0</span>+</div>
+                <div class="stat-label">Consultations gérées</div>
             </div>
-          </div>
-          <div class="form-group">
-            <label><i class="fa-solid fa-lock"></i> Mot de passe</label>
-            <div class="input-wrapper">
-              <span class="input-icon"><i class="fa-solid fa-lock"></i></span>
-              <input type="password" name="password" class="form-input" placeholder="Votre mot de passe" required>
+            <div>
+                <div class="stat-num"><span class="counter" data-target="98">0</span>%</div>
+                <div class="stat-label">Satisfaction patient</div>
             </div>
-          </div>
-          <div class="form-options">
-            <label class="checkbox-wrapper">
-              <input type="checkbox" name="remember">
-              <span>Se souvenir de moi</span>
-            </label>
-            <a href="#" class="forgot-link" onclick="alert('Un lien de réinitialisation vous sera envoyé par email.')">Mot de passe oublié ?</a>
-          </div>
-          <button type="submit" class="login-btn">
-            <i class="fa-solid fa-right-to-bracket"></i> Se connecter
-          </button>
-          <div class="register-section">
-            <p>Pas encore de compte ? <a href="gestionnaire.php?action=inscription" class="register-link">Créer un compte <i class="fa-solid fa-arrow-right"></i></a></p>
-          </div>
-        </form>
-      </div>
+            <div>
+                <div class="stat-num"><span class="counter" data-target="30">0</span> min</div>
+                <div class="stat-label">Attente réduite en moyenne</div>
+            </div>
+            <div>
+                <div class="stat-num">24/7</div>
+                <div class="stat-label">Disponibilité</div>
+            </div>
+        </div>
     </div>
+</div>
 
-    <!-- Formulaire Médecin -->
-    <div id="medecinForm" class="login-card" style="display: none;">
-      <div class="login-header">
-        <div class="login-logo">
-          <i class="fa-solid fa-list-check"></i>
-          <span>QueueCare</span>
-        </div>
-        <h1>Espace Médecin</h1>
-        <p>Gérez vos consultations et votre planning</p>
-      </div>
-      <div class="login-body">
-        <div class="role-badge">
-          <span class="badge-role">
-            <i class="fa-solid fa-user-doctor"></i> Connexion Médecin
-          </span>
+<!-- ── Inscription ───────────────────────────────────────────── -->
+<section class="section register-section" id="inscription">
+    <div class="container">
+        <div class="sec-header" style="margin-bottom:36px">
+            <h2>Créez votre compte</h2>
+            <p>Choisissez votre rôle et rejoignez QueueCare en quelques minutes</p>
         </div>
 
-        <div id="medecinMessages"></div>
+        <div class="register-cards-grid">
 
-        <form id="medecinLoginForm" method="POST" action="medecin.php?action=connexion">
-          <div class="form-group">
-            <label><i class="fa-solid fa-envelope"></i> Adresse email</label>
-            <div class="input-wrapper">
-              <span class="input-icon"><i class="fa-solid fa-envelope"></i></span>
-              <input type="email" name="email" class="form-input" placeholder="medecin@hopital.cm" required>
+            <!-- Carte Médecin -->
+            <div class="register-card">
+                <div class="register-card-badge" style="background:#dbeafe;color:#1e40af">
+                    <i class="fa-solid fa-user-doctor"></i> Médecin
+                </div>
+                <h3>Espace Médecin</h3>
+                <p>Accédez à votre file d'attente, gérez vos consultations et suivez l'état de vos patients en temps réel.</p>
+                <div class="register-card-steps">
+                    <div class="reg-step">
+                        <div class="reg-step-num" style="background:#2563eb">1</div>
+                        <div class="reg-step-text">
+                            <strong>Créer votre compte</strong>
+                            <span>Renseignez vos informations médicales</span>
+                        </div>
+                    </div>
+                    <div class="reg-step">
+                        <div class="reg-step-num" style="background:#2563eb">2</div>
+                        <div class="reg-step-text">
+                            <strong>Rejoindre un établissement</strong>
+                            <span>Le directeur valide votre accès</span>
+                        </div>
+                    </div>
+                    <div class="reg-step">
+                        <div class="reg-step-num" style="background:#2563eb">3</div>
+                        <div class="reg-step-text">
+                            <strong>Gérer votre file</strong>
+                            <span>Appel, consultation et clôture</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="reg-cta-group">
+                    <a href="medecin.php?action=inscription" class="reg-btn reg-btn-primary" style="background:#2563eb">
+                        <i class="fa-solid fa-user-doctor"></i>
+                        S'inscrire comme médecin
+                    </a>
+                    <a href="index.php?action=login" class="reg-btn reg-btn-secondary">
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                        Se connecter
+                    </a>
+                </div>
             </div>
-          </div>
-          <div class="form-group">
-            <label><i class="fa-solid fa-lock"></i> Mot de passe</label>
-            <div class="input-wrapper">
-              <span class="input-icon"><i class="fa-solid fa-lock"></i></span>
-              <input type="password" name="password" class="form-input" placeholder="Votre mot de passe" required>
+
+            <!-- Carte Gestionnaire -->
+            <div class="register-card">
+                <div class="register-card-badge" style="background:#d1fae5;color:#065f46">
+                    <i class="fa-solid fa-user-tie"></i> Gestionnaire
+                </div>
+                <h3>Espace Gestionnaire</h3>
+                <p>Générez des tickets QR, organisez les flux de patients et coordonnez les services de l'établissement.</p>
+                <div class="register-card-steps">
+                    <div class="reg-step">
+                        <div class="reg-step-num" style="background:#059669">1</div>
+                        <div class="reg-step-text">
+                            <strong>Créer votre compte</strong>
+                            <span>Informations de contact et identité</span>
+                        </div>
+                    </div>
+                    <div class="reg-step">
+                        <div class="reg-step-num" style="background:#059669">2</div>
+                        <div class="reg-step-text">
+                            <strong>Rejoindre un établissement</strong>
+                            <span>Le directeur valide votre accès</span>
+                        </div>
+                    </div>
+                    <div class="reg-step">
+                        <div class="reg-step-num" style="background:#059669">3</div>
+                        <div class="reg-step-text">
+                            <strong>Gérer les files d'attente</strong>
+                            <span>Tickets, QR codes et statistiques</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="reg-cta-group">
+                    <a href="gestionnaire.php?action=inscription" class="reg-btn reg-btn-primary" style="background:#059669">
+                        <i class="fa-solid fa-user-tie"></i>
+                        S'inscrire comme gestionnaire
+                    </a>
+                    <a href="index.php?action=login" class="reg-btn reg-btn-secondary">
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                        Se connecter
+                    </a>
+                </div>
             </div>
-          </div>
-          <div class="form-options">
-            <label class="checkbox-wrapper">
-              <input type="checkbox" name="remember">
-              <span>Se souvenir de moi</span>
-            </label>
-            <a href="#" class="forgot-link" onclick="alert('Un lien de réinitialisation vous sera envoyé par email.')">Mot de passe oublié ?</a>
-          </div>
-          <button type="submit" class="login-btn">
-            <i class="fa-solid fa-right-to-bracket"></i> Se connecter
-          </button>
-          <div class="register-section">
-            <p>Pas encore de compte ? <a href="medecin.php?action=inscription" class="register-link">Créer un compte <i class="fa-solid fa-arrow-right"></i></a></p>
-          </div>
-        </form>
-      </div>
+
+            <!-- Carte Directeur -->
+            <div class="register-card" style="border-color:#fbbf24;box-shadow:0 4px 24px rgba(251,191,36,.15)">
+                <div class="register-card-badge" style="background:#fef3c7;color:#92400e">
+                    <i class="fa-solid fa-crown"></i> Directeur
+                </div>
+                <h3>Espace Directeur</h3>
+                <p>Créez et administrez votre établissement. Ajoutez médecins et gestionnaires, configurez les services.</p>
+                <div class="register-card-steps">
+                    <div class="reg-step">
+                        <div class="reg-step-num" style="background:#d97706">1</div>
+                        <div class="reg-step-text">
+                            <strong>Créer l'établissement</strong>
+                            <span>Nom, type (hôpital, clinique…)</span>
+                        </div>
+                    </div>
+                    <div class="reg-step">
+                        <div class="reg-step-num" style="background:#d97706">2</div>
+                        <div class="reg-step-text">
+                            <strong>Configurer les services</strong>
+                            <span>Spécialités et sous-services</span>
+                        </div>
+                    </div>
+                    <div class="reg-step">
+                        <div class="reg-step-num" style="background:#d97706">3</div>
+                        <div class="reg-step-text">
+                            <strong>Ajouter l'équipe</strong>
+                            <span>Médecins & gestionnaires</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="reg-cta-group">
+                    <a href="index.php?action=register_admin" class="reg-btn reg-btn-primary" style="background:#d97706">
+                        <i class="fa-solid fa-building-columns"></i>
+                        Inscrire mon établissement
+                    </a>
+                    <a href="index.php?action=login" class="reg-btn reg-btn-secondary">
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                        Se connecter
+                    </a>
+                </div>
+                <p class="reg-note">
+                    <i class="fa-solid fa-lock"></i>
+                    Données sécurisées · Aucune carte requise
+                </p>
+            </div>
+
+        </div>
     </div>
-  </div>
+</section>
 
-  <script>
-    // Récupérer les messages éventuels depuis l'URL
-    const urlParams = new URLSearchParams(window.location.search);
-    
-    function showMessage(containerId, message, type) {
-      const container = document.getElementById(containerId);
-      if (!container) return;
-      
-      const msgDiv = document.createElement('div');
-      msgDiv.className = type === 'error' ? 'error-msg' : 'success-msg';
-      msgDiv.innerHTML = `<i class="fa-solid ${type === 'error' ? 'fa-triangle-exclamation' : 'fa-circle-check'}"></i> ${message}`;
-      container.innerHTML = '';
-      container.appendChild(msgDiv);
-      
-      setTimeout(() => {
-        msgDiv.style.opacity = '0';
-        setTimeout(() => msgDiv.remove(), 500);
-      }, 5000);
-    }
+<!-- ── Comment ça marche ─────────────────────────────────────── -->
+<section class="section section-alt" id="comment-ca-marche">
+    <div class="container">
+        <div class="sec-header">
+            <h2>Comment ça marche ?</h2>
+            <p>Un processus simple en 4 étapes</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:28px;margin-top:8px">
+            <?php
+            $steps = [
+                ['icon'=>'fa-user-plus',      'num'=>1, 'titre'=>'Inscription',        'desc'=>"Le directeur crée son compte et configure l'établissement."],
+                ['icon'=>'fa-sliders',         'num'=>2, 'titre'=>'Configuration',      'desc'=>"Il crée les sous-services et ajoute médecins & gestionnaires."],
+                ['icon'=>'fa-qrcode',          'num'=>3, 'titre'=>'Génération QR',      'desc'=>"Le gestionnaire génère des QR codes pour les patients."],
+                ['icon'=>'fa-bell',            'num'=>4, 'titre'=>'Suivi en temps réel','desc'=>"Les consultations sont suivies et notifiées via l'app."],
+            ];
+            foreach ($steps as $s): ?>
+            <div style="text-align:center">
+                <div style="width:52px;height:52px;background:var(--blue);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:white;font-size:1.1rem">
+                    <i class="fa-solid <?= $s['icon'] ?>"></i>
+                </div>
+                <h4 style="font-size:1rem;font-weight:600;color:var(--blue-dark);margin-bottom:7px"><?= $s['titre'] ?></h4>
+                <p style="font-size:.86rem;color:var(--muted);line-height:1.6"><?= $s['desc'] ?></p>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</section>
 
-    // Vérifier les paramètres d'URL
-    if (urlParams.has('timeout')) {
-      showMessage('gestionnaireMessages', 'Session expirée. Veuillez vous reconnecter.', 'error');
-    }
-    if (urlParams.has('deconnecte')) {
-      showMessage('gestionnaireMessages', 'Vous avez été déconnecté avec succès.', 'success');
-    }
-    if (urlParams.has('inscription') && urlParams.get('inscription') === 'succes') {
-      showMessage('gestionnaireMessages', 'Compte créé avec succès ! Veuillez vous connecter.', 'success');
-    }
+<!-- ── Espaces ───────────────────────────────────────────────── -->
+<section class="section">
+    <div class="container">
+        <div class="sec-header">
+            <h2>Trois espaces, une solution</h2>
+            <p>Des interfaces adaptées à chaque profil utilisateur</p>
+        </div>
+        <div class="spaces-grid">
+            <a href="index.php?action=login" class="space-card medecin">
+                <div class="space-icon"><i class="fa-solid fa-user-md"></i></div>
+                <h3>Espace Médecin</h3>
+                <p>Consultez votre planning, gérez vos consultations et suivez vos statistiques.</p>
+            </a>
+            <a href="index.php?action=login" class="space-card gestionnaire">
+                <div class="space-icon"><i class="fa-solid fa-chart-simple"></i></div>
+                <h3>Espace Gestionnaire</h3>
+                <p>Gérez la file d'attente, générez des QR codes et consultez les statistiques.</p>
+            </a>
+            <a href="index.php?action=login" class="space-card admin">
+                <div class="space-icon"><i class="fa-solid fa-crown"></i></div>
+                <h3>Espace Directeur</h3>
+                <p>Configurez les sous-services, horaires et gérez les accès utilisateurs.</p>
+            </a>
+        </div>
+    </div>
+</section>
 
-    // Basculer vers l'espace Gestionnaire
-    function switchToGestionnaire() {
-      document.getElementById('gestionnaireForm').style.display = 'block';
-      document.getElementById('medecinForm').style.display = 'none';
-      
-      document.querySelector('.nav-icon.gestionnaire').classList.add('active');
-      document.querySelector('.nav-icon.medecin').classList.remove('active');
-      
-      const url = new URL(window.location.href);
-      url.searchParams.delete('action');
-      window.history.pushState({}, '', url);
-    }
+<!-- ── CTA ───────────────────────────────────────────────────── -->
+<section class="cta-section">
+    <div class="container">
+        <h2>Prêt à optimiser votre établissement ?</h2>
+        <p>Rejoignez les établissements qui font confiance à QueueCare</p>
+        <div class="cta-btns">
+            <a href="index.php?action=register_admin" class="hbtn hbtn-primary" style="background:white;color:var(--blue)">
+                <i class="fa-solid fa-user-plus"></i> Inscrire mon établissement
+            </a>
+            <a href="index.php?action=login" class="hbtn hbtn-outline">
+                <i class="fa-solid fa-arrow-right-to-bracket"></i> Se connecter
+            </a>
+        </div>
+    </div>
+</section>
 
-    // Basculer vers l'espace Médecin
-    function switchToMedecin() {
-      document.getElementById('gestionnaireForm').style.display = 'none';
-      document.getElementById('medecinForm').style.display = 'block';
-      
-      document.querySelector('.nav-icon.medecin').classList.add('active');
-      document.querySelector('.nav-icon.gestionnaire').classList.remove('active');
-      
-      const url = new URL(window.location.href);
-      url.searchParams.set('action', 'medecin');
-      window.history.pushState({}, '', url);
-    }
+<!-- ── Footer ────────────────────────────────────────────────── -->
+<footer class="footer">
+    <div class="container">
+        <p>&copy; <?= $currentYear ?> QueueCare · Tous droits réservés</p>
+        <hr class="footer-sep">
+        <p><i class="fa-solid fa-heart" style="color:#ef4444"></i> Solution de gestion des files d'attente hospitalières</p>
+    </div>
+</footer>
 
-    // Menu des services
-    function toggleServicesMenu() {
-      const menu = document.getElementById('servicesMenu');
-      const overlay = document.getElementById('overlay');
-      menu.classList.toggle('open');
-      overlay.classList.toggle('active');
-    }
-
-    // Intercepter la soumission des formulaires
-    document.getElementById('gestionnaireLoginForm')?.addEventListener('submit', function(e) {
-      const btn = this.querySelector('button[type="submit"]');
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connexion...';
-      btn.disabled = true;
+<script>
+/* ── Compteurs animés ─────────────────────────────────────── */
+function runCounters() {
+    document.querySelectorAll('.counter').forEach(el => {
+        const target = +el.dataset.target;
+        let val = 0;
+        const step = target / 55;
+        const tick = () => {
+            val += step;
+            if (val < target) { el.textContent = Math.floor(val); requestAnimationFrame(tick); }
+            else               { el.textContent = target; }
+        };
+        tick();
     });
+}
 
-    document.getElementById('medecinLoginForm')?.addEventListener('submit', function(e) {
-      const btn = this.querySelector('button[type="submit"]');
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connexion...';
-      btn.disabled = true;
+const statsBand = document.querySelector('.stats-band');
+if (statsBand) {
+    new IntersectionObserver(entries => {
+        if (entries[0].isIntersecting) { runCounters(); }
+    }, { threshold: .5 }).observe(statsBand);
+}
+
+/* ── Scroll doux pour ancres ──────────────────────────────── */
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+        const target = document.querySelector(a.getAttribute('href'));
+        if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     });
+});
 
-    // Afficher le bon formulaire selon l'URL
-    if (urlParams.has('action') && urlParams.get('action') === 'medecin') {
-      switchToMedecin();
-    } else {
-      switchToGestionnaire();
-    }
-  </script>
+
+/* ── Fade-in au scroll ────────────────────────────────────── */
+const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+        if (e.isIntersecting) {
+            e.target.style.opacity = '1';
+            e.target.style.transform = 'translateY(0)';
+        }
+    });
+}, { threshold: .1 });
+
+document.querySelectorAll('.feat-card, .space-card').forEach(el => {
+    el.style.cssText += 'opacity:0;transform:translateY(20px);transition:opacity .55s ease,transform .55s ease';
+    observer.observe(el);
+});
+</script>
 </body>
 </html>

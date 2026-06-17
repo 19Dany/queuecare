@@ -6,7 +6,9 @@ if (!$contact) jsonError('Email ou téléphone requis', 'MISSING_FIELDS');
 
 $db   = getDB();
 $stmt = $db->prepare(
-    "SELECT id FROM patients WHERE email = ? OR telephone = ? AND statut = 'actif' LIMIT 1"
+    "SELECT id, nom, prenom, email, telephone FROM patients
+     WHERE (email = ? OR telephone = ?) AND statut = 'actif'
+     LIMIT 1"
 );
 $stmt->execute([$contact, $contact]);
 $patient = $stmt->fetch();
@@ -34,5 +36,22 @@ $db->prepare("DELETE FROM password_resets WHERE patient_id = ?")
 $db->prepare("INSERT INTO password_resets (patient_id, otp_code, expires_at) VALUES (?, ?, ?)")
    ->execute([$patient['id'], $otp, $expires]);
 
-// En DEV : on retourne le code. En PROD : envoyer par SMS/email
-jsonSuccess(['otp_code' => $otp], 'Code envoyé. (DEV: voir otp_code)');
+$emailSent = false;
+if (!empty($patient['email'])) {
+    $displayName = trim(($patient['prenom'] ?? '') . ' ' . ($patient['nom'] ?? ''));
+    $emailSent = sendOtpEmail($patient['email'], $displayName !== '' ? $displayName : 'Patient', $otp);
+}
+
+$payload = [
+    'delivery' => $emailSent ? 'email' : 'dev',
+];
+
+if (DEBUG_OTP || !$emailSent) {
+    $payload['otp_code'] = $otp;
+}
+
+$message = $emailSent
+    ? 'Code OTP envoye avec succes'
+    : 'Code OTP genere. Configurez SMTP pour l\'envoi email, ou utilisez la valeur renvoyee en dev.';
+
+jsonSuccess($payload, $message);

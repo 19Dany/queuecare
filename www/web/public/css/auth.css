@@ -118,3 +118,11 @@
   .auth-form-inner   { max-width:100%; }
   .auth-title        { font-size:1.7rem; }
 }
+
+/* ── Extra mobile fixes ── */
+@media (max-width:480px) {
+  .auth-brand-inner { padding:24px 16px; }
+  .auth-form-panel  { padding:28px 16px; }
+  .auth-title       { font-size:1.5rem; }
+  .auth-form        { gap:16px; }
+}

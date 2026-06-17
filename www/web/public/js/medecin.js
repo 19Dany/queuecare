@@ -1,27 +1,8 @@
 /**
  * public/js/medecin.js
  * JavaScript pour l'espace Médecin
+ * NOTE: showSection() est défini dans dashboard.php — ne pas redéfinir ici.
  */
-
-// Navigation entre les sections
-function showSection(sectionName) {
-    // Cacher toutes les sections
-    document.querySelectorAll('.section').forEach(section => {
-        section.style.display = 'none';
-    });
-
-    // Afficher la section sélectionnée
-    const activeSection = document.getElementById(`section-${sectionName}`);
-    if (activeSection) {
-        activeSection.style.display = 'block';
-    }
-
-    // Mettre à jour l'état actif du menu
-    document.querySelectorAll('.nav-item').forEach(item => {
-        item.classList.remove('active');
-    });
-    event.currentTarget.classList.add('active');
-}
 
 // Ouvrir modal de confirmation
 function openConfirmModal(consultationId, patientName, action) {
@@ -95,5 +76,7 @@ function resetIdleTimer() {
 });
 resetIdleTimer();
 
-// Auto-reload toutes les 60 secondes
-setInterval(() => window.location.reload(), 60000);
+// NOTE : le rechargement automatique brutal a été supprimé car il interrompait
+// les requêtes AJAX en cours (démarrer/terminer consultation).
+// Le rafraîchissement des données est géré directement dans le dashboard via
+// rafraichirConsultations() toutes les 30 secondes, sans recharger la page.

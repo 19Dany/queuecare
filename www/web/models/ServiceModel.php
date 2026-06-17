@@ -1,9 +1,14 @@
 <?php
 /**
  * models/ServiceModel.php
- * Modèle MVC — Service (hôpital / établissement de santé)
- * Table : services (id, nom, description, adresse, horaires, statut, created_at)
+ * Modèle MVC — Gestion des sous-services, horaires du service unique et médecins
+ * 
+ * VERSION MONO-SERVICE
+ * - Suppression de toutes les méthodes liées à la gestion des services (CRUD)
+ * - Conservation des sous-services, horaires (service_id = 1), et jours de travail
+ * - Ajout des méthodes nécessaires pour le mono-service
  */
+
 require_once __DIR__ . '/../config/database.php';
 
 class ServiceModel
@@ -15,137 +20,91 @@ class ServiceModel
         $this->db = Database::getInstance()->getConnection();
     }
 
-    /* ══════════════════════════════════════════════════
-       LISTE & LECTURE
-    ══════════════════════════════════════════════════ */
+    /* ═══════════════════════════════════════════════════════════
+       SERVICE UNIQUE (id = 1)
+    ═══════════════════════════════════════════════════════════ */
 
-    /** Retourne tous les services avec stats associées */
-    public function getAll(): array
-    {
-        // Essayer d'abord via service_id (colonne directe sur medecins)
-        // Si la colonne n'existe pas encore en BD, fallback via medecin_sous_service
-        try {
-            $stmt = $this->db->query(
-                'SELECT s.*,
-                   (SELECT COUNT(*) FROM sous_services ss
-                    WHERE ss.service_id = s.id) AS nb_sous_services,
-                   (SELECT COUNT(DISTINCT g.id) FROM gestionnaires g
-                    JOIN sous_services ss2 ON ss2.id = g.sous_service_id
-                    WHERE ss2.service_id = s.id) AS nb_gestionnaires,
-                   (SELECT COUNT(DISTINCT m.id) FROM medecins m
-                    WHERE m.service_id = s.id) AS nb_medecins
-                 FROM services s
-                 ORDER BY s.nom'
-            );
-            return $stmt->fetchAll();
-        } catch (\PDOException $e) {
-            // Fallback : service_id absent en BD → compter via medecin_sous_service
-            $stmt = $this->db->query(
-                'SELECT s.*,
-                   (SELECT COUNT(*) FROM sous_services ss
-                    WHERE ss.service_id = s.id) AS nb_sous_services,
-                   (SELECT COUNT(DISTINCT g.id) FROM gestionnaires g
-                    JOIN sous_services ss2 ON ss2.id = g.sous_service_id
-                    WHERE ss2.service_id = s.id) AS nb_gestionnaires,
-                   (SELECT COUNT(DISTINCT mss.medecin_id) FROM medecin_sous_service mss
-                    JOIN sous_services ss3 ON ss3.id = mss.sous_service_id
-                    WHERE ss3.service_id = s.id) AS nb_medecins
-                 FROM services s
-                 ORDER BY s.nom'
-            );
-            return $stmt->fetchAll();
-        }
-    }
-
-    /** Retourne un service par ID */
-    public function trouverParId(int $id)
+    /**
+     * Récupère le service par son ID (utile pour le service unique)
+     */
+    public function getServiceById(int $id)
     {
         $stmt = $this->db->prepare('SELECT * FROM services WHERE id = :id');
         $stmt->execute([':id' => $id]);
         return $stmt->fetch();
     }
 
-    /** Vérifie si un service avec ce nom existe déjà */
-    public function nomExiste(string $nom, int $excludeId = 0): bool
+    /**
+     * Crée le service par défaut (id=1) s'il n'existe pas
+     */
+    public function creerServiceParDefaut(): bool
     {
-        $stmt = $this->db->prepare(
-            'SELECT COUNT(*) FROM services WHERE LOWER(TRIM(nom)) = LOWER(TRIM(:nom)) AND id != :eid'
-        );
-        $stmt->execute([':nom' => $nom, ':eid' => $excludeId]);
-        return (int)$stmt->fetchColumn() > 0;
-    }
+        // Vérifier si le service existe déjà
+        $existing = $this->getServiceById(1);
+        if ($existing) {
+            return true;
+        }
 
-    /* ══════════════════════════════════════════════════
-       CRÉATION
-    ══════════════════════════════════════════════════ */
+        $stmt = $this->db->prepare(
+            'INSERT INTO services (id, nom, description, adresse, horaires_ouverture, horaires_fermeture, statut)
+             VALUES (1, "CMA Tyo de Baleng", "Centre Médical d\'Arrondissement", "PMI, entrée école normale", "08:00:00", "18:00:00", "actif")'
+        );
+        return $stmt->execute();
+    }
 
     /**
-     * Crée un service hospitalier
-     * Colonnes : nom, description, adresse, horaires, statut
+     * Met à jour les horaires du service unique
      */
-    public function creer(array $d): bool
+    public function updateHoraires(int $serviceId, array $data): bool
     {
         $stmt = $this->db->prepare(
-            'INSERT INTO services (nom, description, adresse, horaires, statut)
-             VALUES (:nom, :description, :adresse, :horaires, :statut)'
-        );
-        return $stmt->execute([
-            ':nom'         => htmlspecialchars(trim($d['nom'])),
-            ':description' => htmlspecialchars(trim($d['description'] ?? '')),
-            ':adresse'     => htmlspecialchars(trim($d['adresse'])),
-            ':horaires'    => htmlspecialchars(trim($d['horaires'] ?? '')),
-            ':statut'      => in_array($d['statut'] ?? 'actif', ['actif','inactif']) ? $d['statut'] : 'actif',
-        ]);
-    }
-
-    public function dernierID(): int
-    {
-        return (int)$this->db->lastInsertId();
-    }
-
-    /* ══════════════════════════════════════════════════
-       MODIFICATION / SUPPRESSION
-    ══════════════════════════════════════════════════ */
-
-    public function modifier(int $id, array $d): bool
-    {
-        $stmt = $this->db->prepare(
-            'UPDATE services
-             SET nom = :nom, description = :description, adresse = :adresse,
-                 horaires = :horaires, statut = :statut
+            'UPDATE services 
+             SET horaires_ouverture = :ouverture, 
+                 horaires_fermeture = :fermeture,
+                 pause_debut = :pause_debut, 
+                 pause_fin = :pause_fin,
+                 jours_fermeture = :jours_fermeture
              WHERE id = :id'
         );
         return $stmt->execute([
-            ':id'          => $id,
-            ':nom'         => htmlspecialchars(trim($d['nom'])),
-            ':description' => htmlspecialchars(trim($d['description'] ?? '')),
-            ':adresse'     => htmlspecialchars(trim($d['adresse'])),
-            ':horaires'    => htmlspecialchars(trim($d['horaires'] ?? '')),
-            ':statut'      => in_array($d['statut'] ?? 'actif', ['actif','inactif']) ? $d['statut'] : 'actif',
+            ':id'               => $serviceId,
+            ':ouverture'        => $data['horaires_ouverture'] ?? '08:00:00',
+            ':fermeture'        => $data['horaires_fermeture'] ?? '18:00:00',
+            ':pause_debut'      => $data['pause_debut'] ?? null,
+            ':pause_fin'        => $data['pause_fin'] ?? null,
+            ':jours_fermeture'  => $data['jours_fermeture'] ?? ''
         ]);
     }
 
-    public function basculerStatut(int $id): bool
+    /* ═══════════════════════════════════════════════════════════
+       SOUS-SERVICES (CRUD complet - mono-service)
+    ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Récupère tous les sous-services (service_id = 1 par défaut)
+     */
+    public function getAllSousServices(): array
     {
         $stmt = $this->db->prepare(
-            'UPDATE services
-             SET statut = IF(statut = "actif", "inactif", "actif")
-             WHERE id = :id'
+            'SELECT ss.*, s.nom as service_nom, s.id as service_id
+             FROM sous_services ss
+             JOIN services s ON s.id = ss.service_id
+             WHERE s.id = 1
+             ORDER BY ss.nom'
         );
-        return $stmt->execute([':id' => $id]);
+        $stmt->execute();
+        return $stmt->fetchAll();
     }
 
-    /* ══════════════════════════════════════════════════
-       SOUS-SERVICES D'UN SERVICE
-    ══════════════════════════════════════════════════ */
-
-    /** Retourne tous les sous-services d'un service avec stats */
+    /**
+     * Récupère les sous-services d'un service spécifique (pour compatibilité)
+     */
     public function getSousServicesParService(int $serviceId): array
     {
         $stmt = $this->db->prepare(
             'SELECT ss.*,
-               (SELECT COUNT(*) FROM gestionnaires g WHERE g.sous_service_id = ss.id) AS nb_gestionnaires,
-               (SELECT COUNT(*) FROM medecin_sous_service mss WHERE mss.sous_service_id = ss.id) AS nb_medecins
+                    (SELECT COUNT(*) FROM medecin_sous_service mss WHERE mss.sous_service_id = ss.id) AS nb_medecins,
+                    (SELECT COUNT(*) FROM gestionnaires g WHERE g.sous_service_id = ss.id) AS nb_gestionnaires
              FROM sous_services ss
              WHERE ss.service_id = :sid
              ORDER BY ss.nom'
@@ -154,108 +113,243 @@ class ServiceModel
         return $stmt->fetchAll();
     }
 
-    /** Retourne un sous-service par ID */
-    public function trouverSsParId(int $id)
+    /**
+     * Récupère un sous-service par son nom et service_id
+     */
+    public function getSousServiceParNom(string $nom, int $serviceId)
+    {
+        $stmt = $this->db->prepare(
+            'SELECT * FROM sous_services WHERE nom = :nom AND service_id = :sid LIMIT 1'
+        );
+        $stmt->execute([':nom' => $nom, ':sid' => $serviceId]);
+        return $stmt->fetch();
+    }
+
+    /**
+     * Récupère un sous-service par son ID
+     */
+    public function getSousServiceById(int $id)
     {
         $stmt = $this->db->prepare('SELECT * FROM sous_services WHERE id = :id');
         $stmt->execute([':id' => $id]);
         return $stmt->fetch();
     }
 
-    /** Vérifie si un nom de sous-service existe déjà dans un service */
-    public function nomSsExiste(string $nom, int $serviceId, int $excludeId = 0): bool
+    /**
+     * Vérifie si un nom de sous-service existe déjà
+     */
+    public function nomSsExiste(string $nom, int $serviceId, ?int $exclureId = null): bool
     {
-        $stmt = $this->db->prepare(
-            'SELECT COUNT(*) FROM sous_services
-             WHERE LOWER(TRIM(nom)) = LOWER(TRIM(:nom))
-               AND service_id = :sid AND id != :eid'
-        );
-        $stmt->execute([':nom' => $nom, ':sid' => $serviceId, ':eid' => $excludeId]);
+        if ($exclureId) {
+            $stmt = $this->db->prepare(
+                'SELECT COUNT(*) FROM sous_services 
+                 WHERE nom = :nom AND service_id = :sid AND id != :id'
+            );
+            $stmt->execute([':nom' => $nom, ':sid' => $serviceId, ':id' => $exclureId]);
+        } else {
+            $stmt = $this->db->prepare(
+                'SELECT COUNT(*) FROM sous_services WHERE nom = :nom AND service_id = :sid'
+            );
+            $stmt->execute([':nom' => $nom, ':sid' => $serviceId]);
+        }
         return (int)$stmt->fetchColumn() > 0;
     }
 
     /**
-     * Crée un sous-service
-     * Colonnes : service_id, nom, description, duree_rdv_defaut, duree_estimee, capacite_horaire
+     * Crée un nouveau sous-service
      */
     public function creerSousService(array $d): bool
     {
-        $duree = max(60, (int)($d['duree_rdv_defaut'] ?? 1800));
-        $capa  = max(1,  (int)($d['capacite_horaire'] ?? 10));
         $stmt = $this->db->prepare(
-            'INSERT INTO sous_services
-               (service_id, nom, description, duree_rdv_defaut, duree_estimee, capacite_horaire, statut)
+            'INSERT INTO sous_services (service_id, nom, description, duree_rdv_defaut, duree_estimee, capacite_horaire, statut)
              VALUES (:sid, :nom, :desc, :duree_rdv, :duree_est, :capa, "actif")'
         );
         return $stmt->execute([
             ':sid'       => (int)$d['service_id'],
             ':nom'       => htmlspecialchars(trim($d['nom'])),
             ':desc'      => htmlspecialchars(trim($d['description'] ?? '')),
-            ':duree_rdv' => $duree,
-            ':duree_est' => $duree,
-            ':capa'      => $capa,
+            ':duree_rdv' => (int)($d['duree_rdv_defaut'] ?? 1800),
+            ':duree_est' => (int)($d['duree_rdv_defaut'] ?? 1800),
+            ':capa'      => (int)($d['capacite_horaire'] ?? 10),
         ]);
     }
 
-    /** Modifie un sous-service */
+    /**
+     * Modifie un sous-service existant
+     */
     public function modifierSousService(int $id, array $d): bool
     {
-        $duree = max(60, (int)($d['duree_rdv_defaut'] ?? 1800));
-        $capa  = max(1,  (int)($d['capacite_horaire'] ?? 10));
         $stmt = $this->db->prepare(
-            'UPDATE sous_services
-             SET nom = :nom, description = :desc, duree_rdv_defaut = :duree,
-                 capacite_horaire = :capa, statut = :statut
+            'UPDATE sous_services 
+             SET nom = :nom, 
+                 description = :description, 
+                 duree_rdv_defaut = :duree_rdv,
+                 duree_estimee = :duree_est,
+                 capacite_horaire = :capacite, 
+                 statut = :statut
              WHERE id = :id'
         );
         return $stmt->execute([
-            ':id'    => $id,
-            ':nom'   => htmlspecialchars(trim($d['nom'])),
-            ':desc'  => htmlspecialchars(trim($d['description'] ?? '')),
-            ':duree' => $duree,
-            ':capa'  => $capa,
-            ':statut'=> in_array($d['statut'] ?? 'actif', ['actif','inactif']) ? $d['statut'] : 'actif',
+            ':id'          => $id,
+            ':nom'         => htmlspecialchars(trim($d['nom'])),
+            ':description' => htmlspecialchars(trim($d['description'] ?? '')),
+            ':duree_rdv'   => (int)($d['duree_rdv_defaut'] ?? 1800),
+            ':duree_est'   => (int)($d['duree_rdv_defaut'] ?? 1800),
+            ':capacite'    => (int)($d['capacite_horaire'] ?? 10),
+            ':statut'      => $d['statut'] ?? 'actif'
         ]);
     }
 
-    /** Bascule le statut d'un sous-service */
+    /**
+     * Bascule le statut actif/inactif d'un sous-service
+     */
     public function basculerStatutSs(int $id): bool
     {
         $stmt = $this->db->prepare(
-            'UPDATE sous_services
-             SET statut = IF(statut = "actif", "inactif", "actif")
+            'UPDATE sous_services 
+             SET statut = IF(statut = "actif", "inactif", "actif") 
              WHERE id = :id'
         );
         return $stmt->execute([':id' => $id]);
     }
 
-    /** Supprime un sous-service (vérifie qu'il n'a aucune dépendance) */
-    public function supprimerSousService(int $id): array
+    /**
+     * Récupère le statut actuel d'un sous-service
+     */
+    public function getStatutSs(int $id): ?string
     {
-        // Vérifier les dépendances avant suppression
-        $stmt = $this->db->prepare(
-            'SELECT
-               (SELECT COUNT(*) FROM gestionnaires WHERE sous_service_id = :id)         AS nb_gest,
-               (SELECT COUNT(*) FROM medecin_sous_service WHERE sous_service_id = :id2) AS nb_med,
-               (SELECT COUNT(*) FROM consultations WHERE sous_service_id = :id3)        AS nb_consult'
-        );
-        $stmt->execute([':id' => $id, ':id2' => $id, ':id3' => $id]);
-        $deps = $stmt->fetch();
-
-        if ((int)$deps['nb_gest'] > 0)
-            return ['ok' => false, 'msg' => "Impossible : {$deps['nb_gest']} gestionnaire(s) sont affectés à ce sous-service."];
-        if ((int)$deps['nb_med'] > 0)
-            return ['ok' => false, 'msg' => "Impossible : {$deps['nb_med']} médecin(s) sont affectés à ce sous-service."];
-        if ((int)$deps['nb_consult'] > 0)
-            return ['ok' => false, 'msg' => "Impossible : {$deps['nb_consult']} consultation(s) existent dans ce sous-service."];
-
-        $stmt2 = $this->db->prepare('DELETE FROM sous_services WHERE id = :id');
-        $ok    = $stmt2->execute([':id' => $id]);
-        return ['ok' => $ok, 'msg' => $ok ? 'Sous-service supprimé.' : 'Erreur lors de la suppression.'];
+        $stmt = $this->db->prepare('SELECT statut FROM sous_services WHERE id = :id');
+        $stmt->execute([':id' => $id]);
+        $result = $stmt->fetch();
+        return $result ? $result['statut'] : null;
     }
 
-    public function dernierIdSs(): int
+    /**
+     * Supprime un sous-service (vérifie les dépendances)
+     */
+    public function supprimerSousService(int $id): array
     {
-        return (int)$this->db->lastInsertId();
+        // Vérifier les consultations associées
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM consultations WHERE sous_service_id = :id');
+        $stmt->execute([':id' => $id]);
+        $nbConsult = (int)$stmt->fetchColumn();
+
+        if ($nbConsult > 0) {
+            return ['ok' => false, 'msg' => "Impossible de supprimer : {$nbConsult} consultation(s) associée(s)."];
+        }
+
+        // Vérifier les médecins associés
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM medecin_sous_service WHERE sous_service_id = :id');
+        $stmt->execute([':id' => $id]);
+        $nbMedecins = (int)$stmt->fetchColumn();
+
+        if ($nbMedecins > 0) {
+            return ['ok' => false, 'msg' => "Impossible de supprimer : {$nbMedecins} médecin(s) associé(s)."];
+        }
+
+        // Supprimer
+        $stmt = $this->db->prepare('DELETE FROM sous_services WHERE id = :id');
+        $ok = $stmt->execute([':id' => $id]);
+        return $ok ? ['ok' => true, 'msg' => 'Sous-service supprimé avec succès.'] : ['ok' => false, 'msg' => 'Erreur lors de la suppression.'];
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       MÉDECINS (pour la gestion des jours de travail)
+    ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Récupère tous les médecins (quel que soit leur sous-service)
+     */
+    public function getAllMedecins(): array
+    {
+        $stmt = $this->db->query(
+            'SELECT m.*, 
+                    GROUP_CONCAT(ss.nom SEPARATOR ", ") as ss_noms
+             FROM medecins m
+             LEFT JOIN medecin_sous_service mss ON mss.medecin_id = m.id
+             LEFT JOIN sous_services ss ON ss.id = mss.sous_service_id
+             GROUP BY m.id
+             ORDER BY m.nom, m.prenom'
+        );
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Récupère les médecins d'un service spécifique (pour compatibilité)
+     * En mono-service, on retourne tous les médecins car service_id a été supprimé
+     */
+    public function getMedecinsParService(int $serviceId): array
+    {
+        // En mono-service, on ignore serviceId et on retourne tous les médecins
+        return $this->getAllMedecins();
+    }
+
+    /**
+     * Récupère un médecin par son ID
+     */
+    public function getMedecinParId(int $id)
+    {
+        $stmt = $this->db->prepare('SELECT * FROM medecins WHERE id = :id');
+        $stmt->execute([':id' => $id]);
+        return $stmt->fetch();
+    }
+
+    /**
+     * Récupère les jours de travail d'un médecin
+     */
+    public function getJoursTravailMedecin(int $medecinId): array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT jour_semaine FROM medecin_jours_travail 
+             WHERE medecin_id = :mid AND actif = 1'
+        );
+        $stmt->execute([':mid' => $medecinId]);
+        $result = $stmt->fetchAll();
+        return array_column($result, 'jour_semaine');
+    }
+
+    /**
+     * Sauvegarde les jours de travail d'un médecin
+     */
+    public function sauvegarderJoursTravailMedecin(int $medecinId, array $jours): bool
+    {
+        try {
+            // Supprimer les anciens
+            $stmt = $this->db->prepare('DELETE FROM medecin_jours_travail WHERE medecin_id = :mid');
+            $stmt->execute([':mid' => $medecinId]);
+
+            // Insérer les nouveaux
+            $stmt = $this->db->prepare(
+                'INSERT INTO medecin_jours_travail (medecin_id, jour_semaine, actif)
+                 VALUES (:mid, :jour, 1)'
+            );
+
+            foreach ($jours as $jour) {
+                $stmt->execute([':mid' => $medecinId, ':jour' => (int)$jour]);
+            }
+            return true;
+        } catch (PDOException $e) {
+            return false;
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       JOURS DE LA SEMAINE (helper)
+    ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Retourne la liste des jours de semaine avec leurs noms
+     */
+    public function getJoursSemaine(): array
+    {
+        return [
+            1 => 'Lundi',
+            2 => 'Mardi',
+            3 => 'Mercredi',
+            4 => 'Jeudi',
+            5 => 'Vendredi',
+            6 => 'Samedi',
+            7 => 'Dimanche'
+        ];
     }
 }

@@ -1,6 +1,7 @@
 /**
  * public/js/gestionnaire.js
  * JavaScript pour l'espace Gestionnaire
+ * NOTE: showSection() est défini dans dashboard.php — ne pas redéfinir ici.
  */
 
 // Navigation sections
@@ -15,25 +16,6 @@ document.querySelectorAll('form').forEach(form => {
     });
 });
 
-function showSection(section) {
-    document.getElementById('section-file').style.display = 'none';
-    document.getElementById('section-consultations').style.display = 'none';
-    document.getElementById('section-stats').style.display = 'none';
-    document.getElementById('section-planning').style.display = 'none';
-
-    if (section === 'file') {
-        document.getElementById('section-file').style.display = 'block';
-    } else if (section === 'consultations') {
-        document.getElementById('section-consultations').style.display = 'block';
-    } else if (section === 'stats') {
-        document.getElementById('section-stats').style.display = 'grid';
-    } else if (section === 'planning') {
-        document.getElementById('section-planning').style.display = 'block';
-    }
-
-    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-    event.currentTarget.classList.add('active');
-}
 
 // Modals
 function ouvrirModalChoix() {
@@ -225,5 +207,6 @@ function rechercherPatient(tel) {
     }, 500);
 }
 
-// Auto reload
-setInterval(() => window.location.reload(), 60000);
+// NOTE : le rechargement automatique brutal a été supprimé car il interrompait
+// les requêtes AJAX en cours (démarrer/terminer consultation).
+// Le rafraîchissement des données est géré directement dans le dashboard.

@@ -16,6 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 try {
     require_once __DIR__ . '/config/database.php';
+    require_once __DIR__ . '/config/smtp.php';
     require_once __DIR__ . '/config/helpers.php';
 
     $method = $_SERVER['REQUEST_METHOD'];
@@ -25,6 +26,8 @@ try {
 
     if ($uri === '/auth/login/patient' && $method === 'POST') {
         require __DIR__ . '/auth/login.php';
+    } elseif ($uri === '/auth/login/google/patient' && $method === 'POST') {
+        require __DIR__ . '/auth/google_login.php';
     } elseif ($uri === '/auth/register/patient' && $method === 'POST') {
         require __DIR__ . '/auth/register.php';
     } elseif ($uri === '/auth/password/forgot' && $method === 'POST') {

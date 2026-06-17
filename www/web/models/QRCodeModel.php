@@ -15,81 +15,124 @@ class QRCodeModel
         $this->db = Database::getInstance()->getConnection();
     }
 
-    public function getSousServiceByGestionnaire(int $gestionnaireId)
+    /**
+     * Sauvegarde un QR code en base de données
+     */
+    public function saveQRCode(array $data): int|false
     {
         $stmt = $this->db->prepare(
-            'SELECT ss.id, ss.nom, ss.service_id, s.nom as service_nom, s.adresse
-             FROM gestionnaires g
-             JOIN sous_services ss ON ss.id = g.sous_service_id
-             JOIN services s ON s.id = ss.service_id
-             WHERE g.id = :gid'
+            'INSERT INTO qr_codes (sous_service_id, token, qr_code_path, expire_at, content, created_by, statut)
+             VALUES (:ss_id, :token, :path, :expire_at, :content, :created_by, "actif")'
         );
-        $stmt->execute([':gid' => $gestionnaireId]);
+        
+        $success = $stmt->execute([
+            ':ss_id'     => $data['sous_service_id'],
+            ':token'     => $data['token'],
+            ':path'      => $data['qr_code_path'],
+            ':expire_at' => $data['expire_at'],
+            ':content'   => $data['content'],
+            ':created_by'=> $data['created_by']
+        ]);
+        
+        return $success ? (int)$this->db->lastInsertId() : false;
+    }
+
+    /**
+     * Trouve un QR code par son token
+     */
+    public function findByToken(string $token)
+    {
+        $stmt = $this->db->prepare(
+            'SELECT qc.*, ss.nom as sous_service_nom, ss.duree_estimee
+             FROM qr_codes qc
+             JOIN sous_services ss ON ss.id = qc.sous_service_id
+             WHERE qc.token = :token
+             LIMIT 1'
+        );
+        $stmt->execute([':token' => $token]);
         return $stmt->fetch();
     }
 
+    /**
+     * Trouve un QR code par son ID
+     */
+    public function findById(int $id)
+    {
+        $stmt = $this->db->prepare('SELECT * FROM qr_codes WHERE id = :id');
+        $stmt->execute([':id' => $id]);
+        return $stmt->fetch();
+    }
+
+    /**
+     * Récupère le QR code actif d'un sous-service
+     */
     public function getActiveQRCode(int $sousServiceId)
     {
         $stmt = $this->db->prepare(
             'SELECT * FROM qr_codes 
              WHERE sous_service_id = :ss_id 
+               AND statut = "actif" 
                AND expire_at > NOW()
-               AND statut = "actif"
-             ORDER BY created_at DESC 
+             ORDER BY created_at DESC
              LIMIT 1'
         );
         $stmt->execute([':ss_id' => $sousServiceId]);
         return $stmt->fetch();
     }
 
-    public function saveQRCode(array $data): int
-    {
-        // Désactiver les anciens QR codes
-        $stmt = $this->db->prepare(
-            'UPDATE qr_codes SET statut = "inactif" 
-             WHERE sous_service_id = :ss_id AND statut = "actif"'
-        );
-        $stmt->execute([':ss_id' => $data['sous_service_id']]);
-
-        // Insérer le nouveau QR code
-        $stmt = $this->db->prepare(
-            'INSERT INTO qr_codes 
-             (sous_service_id, token, qr_code_path, expire_at, content, statut, created_by, created_at)
-             VALUES 
-             (:ss_id, :token, :path, :expire_at, :content, "actif", :created_by, NOW())'
-        );
-        $stmt->execute([
-            ':ss_id' => $data['sous_service_id'],
-            ':token' => $data['token'],
-            ':path' => $data['qr_code_path'],
-            ':expire_at' => $data['expire_at'],
-            ':content' => $data['content'],
-            ':created_by' => $data['created_by'] ?? null
-        ]);
-        
-        return (int)$this->db->lastInsertId();
-    }
-
-    public function verifierToken(string $token)
+    /**
+     * Récupère le sous-service d'un gestionnaire
+     */
+    public function getSousServiceByGestionnaire(int $gestionnaireId)
     {
         $stmt = $this->db->prepare(
-            'SELECT qc.*, ss.nom as sous_service_nom, s.nom as service_nom
-             FROM qr_codes qc
-             JOIN sous_services ss ON ss.id = qc.sous_service_id
-             JOIN services s ON s.id = ss.service_id
-             WHERE qc.token = :token 
-               AND qc.statut = "actif"
-               AND qc.expire_at > NOW()'
+            'SELECT ss.* 
+             FROM sous_services ss
+             JOIN gestionnaires g ON g.sous_service_id = ss.id
+             WHERE g.id = :gid
+             LIMIT 1'
         );
-        $stmt->execute([':token' => $token]);
+        $stmt->execute([':gid' => $gestionnaireId]);
         return $stmt->fetch();
     }
 
-    public function incrementerScan(int $qrCodeId): void
+    /**
+     * Incrémente le compteur de scans d'un QR code
+     */
+    public function incrementScanCount(int $qrCodeId): bool
     {
         $stmt = $this->db->prepare(
             'UPDATE qr_codes SET scan_count = scan_count + 1 WHERE id = :id'
         );
-        $stmt->execute([':id' => $qrCodeId]);
+        return $stmt->execute([':id' => $qrCodeId]);
+    }
+
+    /**
+     * Désactive les QR codes expirés
+     */
+    public function desactiverExpires(): int
+    {
+        $stmt = $this->db->prepare(
+            'UPDATE qr_codes 
+             SET statut = "expire" 
+             WHERE expire_at <= NOW() 
+               AND statut = "actif"'
+        );
+        $stmt->execute();
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Récupère tous les QR codes d'un sous-service
+     */
+    public function getBySousService(int $sousServiceId): array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT * FROM qr_codes 
+             WHERE sous_service_id = :ss_id 
+             ORDER BY created_at DESC'
+        );
+        $stmt->execute([':ss_id' => $sousServiceId]);
+        return $stmt->fetchAll();
     }
 }

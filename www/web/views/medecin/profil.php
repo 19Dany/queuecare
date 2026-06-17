@@ -1,6 +1,7 @@
 <?php
 // views/medecin/profil.php
 $medecin = $this->model->trouverParId($_SESSION['medecin_id']);
+$initiale = mb_strtoupper(mb_substr($medecin['prenom'] ?? 'M', 0, 1));
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -8,158 +9,135 @@ $medecin = $this->model->trouverParId($_SESSION['medecin_id']);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mon profil — QueueCare</title>
-    <link href="https://fonts.bunny.net/css?family=playfair-display:400,500,700|outfit:300,400,500,600,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.bunny.net/css?family=outfit:300,400,500,600,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="public/css/medecin.css">
     <style>
-        .profil-container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 40px 20px;
-        }
-        .profil-card {
-            background: white;
-            border-radius: 24px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        .profil-header {
-            background: linear-gradient(135deg, #0052a0, #003d7a);
-            padding: 30px;
-            color: white;
-            text-align: center;
-        }
-        .profil-avatar {
-            width: 80px;
-            height: 80px;
-            background: #00a86b;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 15px;
-            font-size: 2rem;
-            font-weight: 700;
-            color: #0052a0;
-        }
-        .profil-body {
-            padding: 30px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        .form-group label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: #1a2a3a;
-        }
-        .form-group input {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 0.9rem;
-        }
-        .form-group input:focus {
-            outline: none;
-            border-color: #0052a0;
-        }
-        .btn-save {
-            background: linear-gradient(135deg, #0052a0, #003d7a);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            width: 100%;
-        }
-        .btn-back {
-            background: #f1f5f9;
-            color: #1e293b;
-            text-decoration: none;
-            display: inline-block;
-            margin-bottom: 20px;
-            padding: 10px 20px;
-            border-radius: 8px;
-        }
-        .separator {
-            border-top: 1px solid #e2e8f0;
-            margin: 25px 0;
-        }
-        .error-msg {
-            color: #ef4444;
-            font-size: 0.8rem;
-            margin-top: 5px;
-        }
-        .success-msg {
-            background: #e6f7f0;
-            color: #00a86b;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        :root{--blue:#0052a0;--blue-d:#003d7a;--green:#00a86b;--red:#ef4444;--bg:#f5f7fa;--border:#e2e8f0}
+        body{font-family:'Outfit',sans-serif;background:var(--bg);min-height:100vh;padding:24px 16px 48px}
+
+        .back-btn{display:inline-flex;align-items:center;gap:8px;color:var(--blue);text-decoration:none;
+            font-weight:600;font-size:.875rem;margin-bottom:20px;padding:8px 14px;background:white;
+            border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+        .back-btn:hover{background:#dbeafe}
+
+        .profil-wrap{max-width:560px;margin:0 auto}
+
+        /* Lock screen */
+        .lock-screen{background:white;border-radius:20px;box-shadow:0 8px 32px rgba(0,0,0,.10);
+            padding:40px 32px;text-align:center}
+        .lock-icon{width:72px;height:72px;background:#dbeafe;border-radius:50%;display:flex;
+            align-items:center;justify-content:center;margin:0 auto 20px;font-size:2rem;color:var(--blue)}
+        .lock-title{font-size:1.2rem;font-weight:700;color:#1e293b;margin-bottom:8px}
+        .lock-sub{color:#64748b;font-size:.875rem;margin-bottom:24px}
+        .lock-input{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;
+            font-family:inherit;font-size:.9rem;margin-bottom:12px;outline:none}
+        .lock-input:focus{border-color:var(--blue)}
+        .lock-btn{width:100%;padding:13px;background:linear-gradient(135deg,var(--blue),var(--blue-d));
+            color:white;border:none;border-radius:10px;font-family:inherit;font-size:.95rem;
+            font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px}
+        .lock-btn:hover{opacity:.9}
+        .lock-error{color:var(--red);font-size:.8rem;margin-bottom:10px;display:none}
+
+        /* Profil card */
+        .profil-card{background:white;border-radius:20px;box-shadow:0 8px 32px rgba(0,0,0,.10);overflow:hidden;display:none}
+        .profil-header{background:linear-gradient(135deg,var(--blue),var(--blue-d));padding:28px;color:white;text-align:center}
+        .profil-avatar{width:72px;height:72px;background:var(--green);border-radius:50%;display:flex;
+            align-items:center;justify-content:center;margin:0 auto 14px;font-size:1.8rem;font-weight:700;color:var(--blue)}
+        .profil-header h2{font-size:1.1rem;font-weight:700;margin-bottom:4px}
+        .profil-header p{font-size:.8rem;opacity:.8}
+
+        .profil-body{padding:24px}
+        .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+        @media(max-width:480px){.form-row{grid-template-columns:1fr}}
+        .form-group{margin-bottom:16px}
+        .form-group label{display:block;font-size:.78rem;font-weight:700;color:#475569;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
+        .form-group input{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:10px;
+            font-family:inherit;font-size:.9rem;outline:none;transition:border-color .2s}
+        .form-group input:focus{border-color:var(--blue)}
+        .form-group input[readonly]{background:#f8fafc;color:#94a3b8}
+        .separator{border-top:1px solid var(--border);margin:20px 0}
+        .section-title{font-size:.875rem;font-weight:700;color:#1e293b;margin-bottom:14px;
+            display:flex;align-items:center;gap:8px}
+        .btn-save{width:100%;padding:13px;background:linear-gradient(135deg,var(--blue),var(--blue-d));
+            color:white;border:none;border-radius:10px;font-family:inherit;font-size:.95rem;
+            font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:4px}
+        .btn-save:hover{opacity:.9}
+        .msg-success{background:#d1fae5;color:#065f46;padding:12px 16px;border-radius:10px;margin-bottom:16px;font-size:.875rem;font-weight:600;display:none}
+        .msg-error{background:#fee2e2;color:#991b1b;padding:12px 16px;border-radius:10px;margin-bottom:16px;font-size:.875rem;display:none}
     </style>
 </head>
-<body style="background: #f5f7fa;">
-<div class="profil-container">
-    <a href="medecin.php?action=dashboard" class="btn-back">
+<body>
+<div class="profil-wrap">
+    <a href="medecin.php?action=dashboard" class="back-btn">
         <i class="fa-solid fa-arrow-left"></i> Retour au tableau de bord
     </a>
-    
-    <div class="profil-card">
+
+    <!-- ── Écran de verrouillage ── -->
+    <div class="lock-screen" id="lockScreen">
+        <div class="lock-icon"><i class="fa-solid fa-lock"></i></div>
+        <div class="lock-title">Vérification requise</div>
+        <div class="lock-sub">Entrez votre mot de passe pour accéder à votre profil.</div>
+        <div class="lock-error" id="lockError">Mot de passe incorrect.</div>
+        <input type="password" class="lock-input" id="lockPassword" placeholder="Votre mot de passe" autocomplete="current-password">
+        <button class="lock-btn" onclick="verifierMdp()">
+            <i class="fa-solid fa-unlock"></i> Accéder au profil
+        </button>
+    </div>
+
+    <!-- ── Profil (caché jusqu'à vérification) ── -->
+    <div class="profil-card" id="profilCard">
         <div class="profil-header">
-            <div class="profil-avatar">
-                <?= strtoupper(substr($medecin['prenom'], 0, 1)) ?>
-            </div>
+            <div class="profil-avatar"><?= $initiale ?></div>
             <h2>Mon profil</h2>
-            <p>Gérez vos informations personnelles</p>
+            <p>Dr <?= htmlspecialchars($medecin['prenom'].' '.$medecin['nom']) ?></p>
         </div>
-        
         <div class="profil-body">
-            <div id="messageContainer"></div>
-            
+            <div class="msg-success" id="msgSuccess"><i class="fa-solid fa-circle-check"></i> Modifications enregistrées !</div>
+            <div class="msg-error"   id="msgError"></div>
+
             <form id="profilForm">
-                <div class="form-group">
-                    <label><i class="fa-solid fa-user"></i> Nom</label>
-                    <input type="text" name="nom" id="nom" value="<?= htmlspecialchars($medecin['nom']) ?>" required>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nom</label>
+                        <input type="text" name="nom" value="<?= htmlspecialchars($medecin['nom']) ?>" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Prénom</label>
+                        <input type="text" name="prenom" value="<?= htmlspecialchars($medecin['prenom']) ?>" required>
+                    </div>
                 </div>
-                
                 <div class="form-group">
-                    <label><i class="fa-solid fa-user"></i> Prénom</label>
-                    <input type="text" name="prenom" id="prenom" value="<?= htmlspecialchars($medecin['prenom']) ?>" required>
+                    <label>Téléphone</label>
+                    <input type="tel" name="telephone" value="<?= htmlspecialchars($medecin['telephone']) ?>" required>
                 </div>
-                
                 <div class="form-group">
-                    <label><i class="fa-solid fa-phone"></i> Téléphone</label>
-                    <input type="tel" name="telephone" id="telephone" value="<?= htmlspecialchars($medecin['telephone']) ?>" required>
+                    <label>Email</label>
+                    <input type="email" name="email" value="<?= htmlspecialchars($medecin['email']) ?>" required>
                 </div>
-                
                 <div class="form-group">
-                    <label><i class="fa-solid fa-envelope"></i> Email</label>
-                    <input type="email" name="email" id="email" value="<?= htmlspecialchars($medecin['email']) ?>" required>
+                    <label>Spécialité</label>
+                    <input type="text" readonly value="<?= htmlspecialchars($medecin['specialite'] ?? '') ?>">
                 </div>
-                
+
                 <div class="separator"></div>
-                
-                <h3 style="margin-bottom: 20px;">Changer le mot de passe</h3>
-                
+                <div class="section-title"><i class="fa-solid fa-key"></i> Changer le mot de passe</div>
+
                 <div class="form-group">
-                    <label><i class="fa-solid fa-lock"></i> Mot de passe actuel</label>
-                    <input type="password" name="password_actuel" id="password_actuel" placeholder="Entrez votre mot de passe actuel">
+                    <label>Mot de passe actuel</label>
+                    <input type="password" name="password_actuel" id="password_actuel" placeholder="Requis pour changer le mot de passe">
                 </div>
-                
-                <div class="form-group">
-                    <label><i class="fa-solid fa-key"></i> Nouveau mot de passe</label>
-                    <input type="password" name="nouveau_password" id="nouveau_password" placeholder="Minimum 8 caractères, 1 majuscule, 1 chiffre">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nouveau mot de passe</label>
+                        <input type="password" name="nouveau_password" placeholder="Min 8 car., 1 maj., 1 chiffre">
+                    </div>
+                    <div class="form-group">
+                        <label>Confirmer</label>
+                        <input type="password" name="confirmer_password" placeholder="Répétez le mot de passe">
+                    </div>
                 </div>
-                
-                <div class="form-group">
-                    <label><i class="fa-solid fa-check"></i> Confirmer le mot de passe</label>
-                    <input type="password" name="confirmer_password" id="confirmer_password" placeholder="Répétez le nouveau mot de passe">
-                </div>
-                
+
                 <button type="submit" class="btn-save">
                     <i class="fa-solid fa-floppy-disk"></i> Enregistrer les modifications
                 </button>
@@ -169,48 +147,47 @@ $medecin = $this->model->trouverParId($_SESSION['medecin_id']);
 </div>
 
 <script>
-document.getElementById('profilForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    const formData = new FormData(this);
-    const btn = this.querySelector('button[type="submit"]');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enregistrement...';
-    btn.disabled = true;
-    
-    try {
-        const response = await fetch('medecin.php?action=mettre_a_jour_profil', {
-            method: 'POST',
-            body: formData
-        });
-        const data = await response.json();
-        
-        if (data.success) {
-            document.getElementById('messageContainer').innerHTML = 
-                '<div class="success-msg"><i class="fa-solid fa-circle-check"></i> ' + data.message + '</div>';
-            setTimeout(() => {
-                window.location.href = 'medecin.php?action=dashboard';
-            }, 1500);
-        } else {
-            let errors = '';
-            for (const [key, value] of Object.entries(data.errors)) {
-                errors += `<div class="error-msg">- ${value}</div>`;
-            }
-            document.getElementById('messageContainer').innerHTML = 
-                '<div class="error-msg" style="background:#fee2e2;padding:12px;border-radius:8px;margin-bottom:20px;">' + errors + '</div>';
-        }
-    } catch (error) {
-        document.getElementById('messageContainer').innerHTML = 
-            '<div class="error-msg" style="background:#fee2e2;padding:12px;border-radius:8px;">Erreur lors de l\'enregistrement</div>';
-    } finally {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
+async function verifierMdp() {
+    const pwd = document.getElementById('lockPassword').value;
+    if (!pwd) return;
+    const fd = new FormData();
+    fd.append('password', pwd);
+    const r = await fetch('medecin.php?action=verifier_mdp', {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.success) {
+        document.getElementById('lockScreen').style.display = 'none';
+        document.getElementById('profilCard').style.display  = 'block';
+        // Pré-remplir password_actuel pour la sauvegarde
+        document.getElementById('password_actuel').value = pwd;
+    } else {
+        const err = document.getElementById('lockError');
+        err.style.display = 'block';
+        document.getElementById('lockPassword').value = '';
+        setTimeout(() => err.style.display = 'none', 3000);
     }
+}
+document.getElementById('lockPassword').addEventListener('keydown', e => {
+    if (e.key === 'Enter') verifierMdp();
 });
 
-// Validation téléphone
-document.getElementById('telephone').addEventListener('input', function(e) {
-    this.value = this.value.replace(/[^0-9+]/g, '');
+document.getElementById('profilForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = this.querySelector('button[type="submit"]');
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enregistrement...';
+    btn.disabled = true;
+    const r = await fetch('medecin.php?action=mettre_a_jour_profil', {method:'POST', body:new FormData(this)});
+    const d = await r.json();
+    if (d.success) {
+        document.getElementById('msgSuccess').style.display = 'flex';
+        document.getElementById('msgError').style.display = 'none';
+        setTimeout(() => window.location.href = 'medecin.php?action=dashboard', 1500);
+    } else {
+        const msgs = Object.values(d.errors || {}).join('<br>') || (d.message || 'Erreur');
+        document.getElementById('msgError').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> ' + msgs;
+        document.getElementById('msgError').style.display = 'block';
+    }
+    btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer les modifications';
+    btn.disabled = false;
 });
 </script>
 </body>

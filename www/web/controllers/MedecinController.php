@@ -1,37 +1,48 @@
 <?php
 /**
  * controllers/MedecinController.php
- * Contrôleur pour l'espace Médecin
+ * Contrôleur pour l'espace Médecin – Version mono-service avec utilisateurs
  */
 
 require_once __DIR__ . '/../models/MedecinModel.php';
+require_once __DIR__ . '/../models/ServiceModel.php';
+require_once __DIR__ . '/../models/UtilisateurModel.php';
+require_once __DIR__ . '/../helpers/UploadHelper.php';
+require_once __DIR__ . '/../helpers/AuthHelper.php';
 
 class MedecinController
 {
     private MedecinModel $model;
+    private ServiceModel $serviceModel;
+    private UtilisateurModel $utilisateurModel;
 
     public function __construct()
     {
         $this->model = new MedecinModel();
+        $this->serviceModel = new ServiceModel();
+        $this->utilisateurModel = new UtilisateurModel();
     }
 
     /* ════════════════════════════════════════════════════════
-       INSCRIPTION
+       INSCRIPTION (mono‑service)
     ════════════════════════════════════════════════════════ */
 
     public function afficherInscription(): void
     {
+        // Vérifier si déjà connecté
+        if (AuthHelper::estMedecin()) {
+            header('Location: medecin.php?action=dashboard');
+            exit;
+        }
         $erreurs    = [];
         $anciens    = [];
-        $services   = $this->model->getServices();
-        $medecin = null;
         require __DIR__ . '/../views/medecin/inscription.php';
     }
 
     public function traiterInscription(): void
     {
+        $sousServices = $this->model->getSousServicesActifs();
         $erreurs  = [];
-        $services = $this->model->getServices();
 
         $nom       = trim($_POST['nom']        ?? '');
         $prenom    = trim($_POST['prenom']      ?? '');
@@ -39,33 +50,22 @@ class MedecinController
         $email     = trim($_POST['email']       ?? '');
         $password  = $_POST['password']         ?? '';
         $confirm   = $_POST['confirm']          ?? '';
-        $serviceId = (int)($_POST['service_id'] ?? 0);
-        $specialite= trim($_POST['specialite']  ?? '');
+        $specialiteId = (int)($_POST['sous_service_id'] ?? 0);
 
-        $anciens = compact('nom', 'prenom', 'telephone', 'email', 'serviceId', 'specialite');
+        $anciens = compact('nom', 'prenom', 'telephone', 'email', 'specialiteId');
 
-        // Gestion de la photo
+        // Upload de la photo
         $photoPath = null;
         if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
-            $uploadDir = __DIR__ . '/../public/uploads/medecins/';
-            if (!file_exists($uploadDir)) {
-                mkdir($uploadDir, 0777, true);
-            }
-            $extension = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
-            $allowed = ['jpg', 'jpeg', 'png'];
-            if (in_array($extension, $allowed)) {
-                $filename = uniqid('medecin_') . '.' . $extension;
-                $destination = $uploadDir . $filename;
-                if (move_uploaded_file($_FILES['photo']['tmp_name'], $destination)) {
-                    $photoPath = 'public/uploads/medecins/' . $filename;
-                } else {
-                    $erreurs['photo'] = 'Erreur lors de l\'upload de la photo.';
-                }
+            $upload = UploadHelper::uploadPhoto($_FILES['photo'], 'medecins');
+            if ($upload['success']) {
+                $photoPath = $upload['filename'];
             } else {
-                $erreurs['photo'] = 'Format non autorisé. Utilisez JPG ou PNG.';
+                $erreurs['photo'] = $upload['error'];
             }
         }
 
+        // Validations
         if (mb_strlen($nom) < 2) $erreurs['nom'] = 'Nom trop court (min. 2 caractères).';
         if (mb_strlen($prenom) < 2) $erreurs['prenom'] = 'Prénom trop court (min. 2 caractères).';
 
@@ -79,15 +79,17 @@ class MedecinController
             $erreurs['email'] = 'Adresse email invalide.';
         } elseif ($this->model->emailExiste($email)) {
             $erreurs['email'] = 'Cette adresse email est déjà utilisée.';
+        } elseif ($this->utilisateurModel->emailExiste($email)) {
+            $erreurs['email'] = 'Cette adresse email est déjà utilisée dans le système.';
         }
 
-        if ($serviceId === 0) $erreurs['service_id'] = 'Veuillez sélectionner un hôpital.';
-        if (empty($specialite)) $erreurs['specialite'] = 'Veuillez sélectionner votre sous-service.';
-
-        $sousServiceId = 0;
-        if ($serviceId > 0 && !empty($specialite)) {
-            $sousServiceId = $this->model->trouverSousServiceParNom($specialite, $serviceId);
-            if (!$sousServiceId) $erreurs['specialite'] = 'Sous-service introuvable. Veuillez resélectionner.';
+        if ($specialiteId <= 0) {
+            $erreurs['sous_service_id'] = 'Veuillez sélectionner votre sous-service.';
+        } else {
+            $ss = $this->model->trouverSousServiceParId($specialiteId);
+            if (!$ss || $ss['statut'] !== 'actif') {
+                $erreurs['sous_service_id'] = 'Sous‑service invalide.';
+            }
         }
 
         if (strlen($password) < 8) {
@@ -105,27 +107,48 @@ class MedecinController
             return;
         }
 
-        $ok = $this->model->creer([
+        // 🔐 HASHER LE MOT DE PASSE AVANT STOCKAGE
+        // 1. Créer le médecin (MedecinModel hache lui-même le mot de passe)
+        $medecinId = $this->model->creer([
             'nom'        => $nom,
             'prenom'     => $prenom,
-            'specialite' => $specialite,
+            'specialite' => $ss['nom'],
             'telephone'  => $telephone,
             'email'      => $email,
             'password'   => $password,
-            'service_id' => $serviceId,
             'photo'      => $photoPath,
         ]);
 
-        if (!$ok) {
-            $erreurs['global'] = 'Erreur lors de la création du compte. Veuillez réessayer.';
+        if (!$medecinId) {
+            $erreurs['global'] = 'Erreur lors de la création du compte médecin.';
             require __DIR__ . '/../views/medecin/inscription.php';
             return;
         }
 
-        $medecinId = $this->model->dernierID();
-        $this->model->affecterSousService($medecinId, $sousServiceId);
+        // 2. Affecter le sous-service
+        $this->model->affecterSousService($medecinId, $specialiteId);
 
-        header('Location: medecin.php?action=connexion&inscription=succes');
+        // 3. Créer le compte utilisateur — récupérer le hash déjà stocké dans medecins
+        $medecinData = $this->model->trouverParEmail($email);
+        $userId = $this->utilisateurModel->creer([
+            'email'      => $email,
+            'password'   => $medecinData['password'],
+            'role'       => 'medecin',
+            'nom'        => $prenom . ' ' . $nom,
+            'medecin_id' => $medecinId
+        ]);
+
+        if (!$userId) {
+            $erreurs['global'] = 'Erreur lors de la création du compte utilisateur.';
+            require __DIR__ . '/../views/medecin/inscription.php';
+            return;
+        }
+
+        // 4. Connecter automatiquement
+        AuthHelper::connecterMedecin($medecinId, $prenom . ' ' . $nom, $email);
+        $_SESSION['user_id'] = $userId;
+
+        header('Location: medecin.php?action=dashboard');
         exit;
     }
 
@@ -135,6 +158,11 @@ class MedecinController
 
     public function afficherConnexion(): void
     {
+        if (AuthHelper::estMedecin()) {
+            header('Location: medecin.php?action=dashboard');
+            exit;
+        }
+        
         $erreurs      = [];
         $ancien_email = '';
         require __DIR__ . '/../views/medecin/connexion.php';
@@ -152,19 +180,33 @@ class MedecinController
             return;
         }
 
-        $medecin = $this->model->trouverParEmail($ancien_email);
+        // Authentifier via la table utilisateurs
+        $user = $this->utilisateurModel->authentifier($ancien_email, $password);
 
-        if (!$medecin || !password_verify($password, $medecin['password'])) {
+        if (!$user || ($user['role'] !== 'medecin' && $user['role'] !== 'admin')) {
             $erreurs['global'] = 'Email ou mot de passe incorrect.';
             require __DIR__ . '/../views/medecin/connexion.php';
             return;
         }
 
-        session_regenerate_id(true);
-        $_SESSION['medecin_id']     = $medecin['id'];
-        $_SESSION['medecin_nom']    = $medecin['nom'] . ' ' . $medecin['prenom'];
-        $_SESSION['medecin_prenom'] = $medecin['prenom'];
-        $_SESSION['last_activity']  = time();
+        $medecin = $this->model->trouverParId($user['medecin_id']);
+        if (!$medecin) {
+            $erreurs['global'] = 'Compte médecin introuvable.';
+            require __DIR__ . '/../views/medecin/connexion.php';
+            return;
+        }
+
+        // Mettre à jour la dernière connexion
+        $this->utilisateurModel->updateDerniereConnexion($user['id']);
+
+        // Stocker le vrai user_id (table utilisateurs) + medecin_id séparé
+        AuthHelper::initSession();
+        $_SESSION['user_id']       = $user['id'];
+        $_SESSION['user_nom']      = $user['nom'];
+        $_SESSION['user_email']    = $user['email'];
+        $_SESSION['medecin_id']    = $user['medecin_id'];
+        $_SESSION['role']          = $user['role'];
+        $_SESSION['last_activity'] = time();
 
         header('Location: medecin.php?action=dashboard');
         exit;
@@ -176,19 +218,30 @@ class MedecinController
 
     public function afficherDashboard(): void
     {
-        if (!isset($_SESSION['medecin_id'])) {
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             header('Location: medecin.php?action=connexion');
             exit;
         }
+        // Mode admin-medecin : signaler a la vue qu'on est dans le dashboard admin
+        $isAdminMedecin = AuthHelper::estAdminMedecin();
 
         $medecinId  = (int)$_SESSION['medecin_id'];
-        $medecinNom = $_SESSION['medecin_nom'];
-
-        $affectation  = $this->model->getSousServiceMedecin($medecinId);
-        $stats        = [];
-        $consultations= [];
-        $planning     = [];
-        $medecin      = $this->model->trouverParId($medecinId);
+        $medecin    = $this->model->trouverParId($medecinId);
+        $affectation = $this->model->getSousServiceMedecin($medecinId);
+        
+        // Récupérer les jours de travail du médecin
+        $medecin['jours_travail'] = $this->model->getJoursTravailMedecin($medecinId);
+        
+        // Récupérer les horaires du service (id=1)
+        $service = $this->serviceModel->getServiceById(1);
+        if (!$service) {
+            $this->serviceModel->creerServiceParDefaut();
+            $service = $this->serviceModel->getServiceById(1);
+        }
+        
+        $stats      = [];
+        $consultations = [];
+        $planning   = [];
 
         if ($affectation) {
             $ssId = (int)$affectation['ss_id'];
@@ -201,36 +254,57 @@ class MedecinController
     }
 
     /* ════════════════════════════════════════════════════════
-       RÉCUPÉRATION DES DONNÉES AJAX
+       DÉCONNEXION
     ════════════════════════════════════════════════════════ */
 
+    public function deconnecter(): void
+    {
+        session_unset();
+        session_destroy();
+        header('Location: accueil.php');
+        exit;
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // MÉTHODES AJAX (getConsultationsData, getStatsData, etc.) - Inchangées
+    // ═══════════════════════════════════════════════════════════════════════════════
+    
     public function getConsultationsData(): void
     {
         header('Content-Type: application/json');
-        
-        if (!isset($_SESSION['medecin_id'])) {
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             echo json_encode(['error' => 'Non authentifié']);
             exit;
         }
-        
-        $medecinId = $_SESSION['medecin_id'];
+
+        $medecinId   = $_SESSION['medecin_id'];
         $affectation = $this->model->getSousServiceMedecin($medecinId);
-        
+
         if (!$affectation) {
             echo json_encode(['success' => true, 'consultations' => [], 'stats' => []]);
             exit;
         }
-        
+
         $ssId = $affectation['ss_id'];
+
         $consultations = $this->model->consultationsDuJour($ssId, $medecinId);
-        $stats = $this->model->statsJour($ssId);
-        
+        $stats         = $this->model->statsJour($ssId);
+
         foreach ($consultations as &$c) {
             $c['heure_passage_estimee'] = $c['heure_passage_estimee'] ? date('H:i', strtotime($c['heure_passage_estimee'])) : '—';
             $c['heure_debut_reelle'] = $c['heure_debut_reelle'] ? date('H:i', strtotime($c['heure_debut_reelle'])) : '—';
             $c['heure_fin_reelle'] = $c['heure_fin_reelle'] ? date('H:i', strtotime($c['heure_fin_reelle'])) : '—';
+            // Calcul côté serveur (doublon de sécurité si la DB ne le retourne pas)
+            if ($c['statut'] === 'en_pause' && !empty($c['heure_pause'])) {
+                $c['secondes_en_pause'] = (int)(time() - strtotime($c['heure_pause']));
+            } else {
+                $c['secondes_en_pause'] = (int)($c['secondes_en_pause'] ?? 0);
+            }
+            $c['priorite_retour'] = (int)($c['priorite_retour'] ?? 0);
         }
-        
+        unset($c);
+
         echo json_encode(['success' => true, 'consultations' => $consultations, 'stats' => $stats]);
         exit;
     }
@@ -238,39 +312,76 @@ class MedecinController
     public function getStatsData(): void
     {
         header('Content-Type: application/json');
-        
-        if (!isset($_SESSION['medecin_id'])) {
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             echo json_encode(['error' => 'Non authentifié']);
             exit;
         }
-        
-        $medecinId = $_SESSION['medecin_id'];
+
+        $medecinId   = $_SESSION['medecin_id'];
         $affectation = $this->model->getSousServiceMedecin($medecinId);
-        
+
         if (!$affectation) {
             echo json_encode(['success' => true, 'stats' => []]);
             exit;
         }
-        
+
         $stats = $this->model->statsJour($affectation['ss_id']);
         echo json_encode(['success' => true, 'stats' => $stats]);
         exit;
     }
 
-    /* ════════════════════════════════════════════════════════
-       ACTIONS SUR LES CONSULTATIONS (AJAX)
-    ════════════════════════════════════════════════════════ */
+    public function mettreEnPauseAjax(): void
+    {
+        if (ob_get_level()) ob_end_clean();
+        header('Content-Type: application/json');
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
+            echo json_encode(['success' => false, 'message' => 'Non authentifié']);
+            exit;
+        }
+
+        $consultationId = (int)($_POST['consultation_id'] ?? 0);
+        $motif          = trim($_POST['motif'] ?? 'Examen externe');
+
+        if ($consultationId && $this->model->mettreEnPause($consultationId, $motif)) {
+            echo json_encode(['success' => true, 'message' => 'Consultation mise en pause']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Impossible de mettre en pause (la consultation doit être en cours)']);
+        }
+        exit;
+    }
+
+    public function reprendreConsultationAjax(): void
+    {
+        if (ob_get_level()) ob_end_clean();
+        header('Content-Type: application/json');
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
+            echo json_encode(['success' => false, 'message' => 'Non authentifié']);
+            exit;
+        }
+
+        $consultationId = (int)($_POST['consultation_id'] ?? 0);
+        if ($consultationId && $this->model->reprendreConsultation($consultationId)) {
+            echo json_encode(['success' => true, 'message' => 'Consultation reprise']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Impossible de reprendre cette consultation']);
+        }
+        exit;
+    }
 
     public function demarrerConsultationAjax(): void
     {
         header('Content-Type: application/json');
-        
-        if (!isset($_SESSION['medecin_id'])) {
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             echo json_encode(['success' => false, 'message' => 'Non authentifié']);
             exit;
         }
-        
+
         $consultationId = (int)($_POST['consultation_id'] ?? 0);
+
         if ($consultationId && $this->model->demarrerConsultation($consultationId)) {
             echo json_encode(['success' => true, 'message' => 'Consultation démarrée']);
         } else {
@@ -282,12 +393,12 @@ class MedecinController
     public function terminerConsultationAjax(): void
     {
         header('Content-Type: application/json');
-        
-        if (!isset($_SESSION['medecin_id'])) {
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             echo json_encode(['success' => false, 'message' => 'Non authentifié']);
             exit;
         }
-        
+
         $consultationId = (int)($_POST['consultation_id'] ?? 0);
         if ($consultationId && $this->model->terminerConsultation($consultationId)) {
             echo json_encode(['success' => true, 'message' => 'Consultation terminée']);
@@ -300,12 +411,12 @@ class MedecinController
     public function marquerAbsentAjax(): void
     {
         header('Content-Type: application/json');
-        
-        if (!isset($_SESSION['medecin_id'])) {
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             echo json_encode(['success' => false, 'message' => 'Non authentifié']);
             exit;
         }
-        
+
         $consultationId = (int)($_POST['consultation_id'] ?? 0);
         if ($consultationId && $this->model->marquerAbsent($consultationId)) {
             echo json_encode(['success' => true, 'message' => 'Patient marqué comme absent']);
@@ -318,104 +429,132 @@ class MedecinController
     public function annulerToutesAjax(): void
     {
         header('Content-Type: application/json');
-        
-        if (!isset($_SESSION['medecin_id'])) {
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             echo json_encode(['success' => false, 'message' => 'Non authentifié']);
             exit;
         }
-        
+
         $medecinId = $_SESSION['medecin_id'];
         if ($this->model->annulerToutesConsultations($medecinId)) {
-            echo json_encode(['success' => true, 'message' => 'Toutes les consultations ont été annulées']);
+            echo json_encode(['success' => true, 'message' => 'Consultations reportées au lendemain avec priorité']);
         } else {
-            echo json_encode(['success' => false, 'message' => 'Erreur lors de l\'annulation']);
+            echo json_encode(['success' => false, 'message' => 'Erreur lors du report des consultations']);
         }
         exit;
     }
-
-    /* ════════════════════════════════════════════════════════
-       PLANNING DU MÉDECIN
-    ════════════════════════════════════════════════════════ */
-
     public function getPlanningMedecin(): void
     {
         header('Content-Type: application/json');
-        
-        if (!isset($_SESSION['medecin_id'])) {
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             echo json_encode(['error' => 'Non authentifié']);
             exit;
         }
-        
+
         $medecinId = $_SESSION['medecin_id'];
         $affectation = $this->model->getSousServiceMedecin($medecinId);
-        
+
         if (!$affectation) {
             echo json_encode(['success' => true, 'consultations' => []]);
             exit;
         }
-        
+
         $ssId = $affectation['ss_id'];
         $date = $_GET['date'] ?? date('Y-m-d');
+        $startDate = date('Y-m-d', strtotime($date));
+        $endDate = date('Y-m-d', strtotime($date . ' +6 days'));
+
+        $consultationsData = $this->model->getConsultationsParPeriode($ssId, $medecinId, $startDate, $endDate);
         
         $consultations = [];
-        for ($i = 0; $i <= 6; $i++) {
-            $dateCourante = date('Y-m-d', strtotime($date . " +{$i} days"));
-            $consultationsJour = $this->model->consultationsDuJour($ssId, $medecinId);
-            foreach ($consultationsJour as $c) {
-                $cDate = date('Y-m-d', strtotime($c['heure_passage_estimee']));
-                if ($cDate === $dateCourante) {
-                    $consultations[] = [
-                        'id' => $c['id'],
-                        'patient_nom' => $c['patient_nom'],
-                        'patient_prenom' => $c['patient_prenom'],
-                        'statut' => $c['statut'],
-                        'heure_debut' => date('H:i', strtotime($c['heure_passage_estimee'])),
-                        'date_consultation' => $dateCourante
-                    ];
-                }
-            }
+        foreach ($consultationsData as $c) {
+            $heureDebutTs = strtotime($c['heure_passage_estimee']);
+            $duree        = (int)($c['duree_estimee'] ?? 1800);
+            $consultations[] = [
+                'id'                => $c['id'],
+                'patient_nom'       => $c['patient_nom'],
+                'patient_prenom'    => $c['patient_prenom'],
+                'statut'            => $c['statut'],
+                'heure_debut'       => date('H:i', $heureDebutTs),
+                'heure_fin'         => date('H:i', $heureDebutTs + $duree),
+                'date_consultation' => date('Y-m-d', $heureDebutTs),
+            ];
         }
-        
+
+        // Service horaires + jours de travail du médecin
+        $serviceHoraires = $this->model->getServiceHoraires($ssId);
+        $joursTravail    = $this->model->getJoursTravailMedecin((int)$medecinId);
+
         echo json_encode([
-            'success' => true,
-            'consultations' => $consultations,
-            'date_debut' => $date
+            'success'          => true,
+            'consultations'    => $consultations,
+            'date_debut'       => $date,
+            'service_horaires' => $serviceHoraires,
+            'jours_travail'    => $joursTravail,
         ]);
         exit;
     }
 
-    /* ════════════════════════════════════════════════════════
-       API AJAX
-    ════════════════════════════════════════════════════════ */
-
-    public function apiSousServices(): void
+    public function verifierMdp(): void
     {
-        header('Content-Type: application/json; charset=utf-8');
-        $serviceId = (int)($_GET['service_id'] ?? 0);
-        if ($serviceId <= 0) {
-            echo json_encode([]);
+        header('Content-Type: application/json');
+
+        $password = $_POST['password'] ?? '';
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Non authentifié'
+            ]);
             exit;
         }
-        echo json_encode($this->model->getSousServicesActifsParService($serviceId));
+
+        $medecin = $this->model->trouverParId(
+            (int)$_SESSION['medecin_id']
+        );
+
+        if (!$medecin) {
+            echo json_encode([
+                'success' => false
+            ]);
+            exit;
+        }
+
+        $db = Database::getInstance()->getConnection();
+
+        $stmt = $db->prepare("
+            SELECT mot_de_passe
+            FROM utilisateurs
+            WHERE medecin_id = :id
+            LIMIT 1
+        ");
+
+        $stmt->execute([
+            ':id' => $_SESSION['medecin_id']
+        ]);
+
+        $hash = $stmt->fetchColumn();
+
+        echo json_encode([
+            'success' => $hash && password_verify($password, $hash)
+        ]);
+
         exit;
     }
-
-    /* ════════════════════════════════════════════════════════
-       GESTION DU PROFIL
-    ════════════════════════════════════════════════════════ */
 
     public function getProfilData(): void
     {
         header('Content-Type: application/json');
-        
-        if (!isset($_SESSION['medecin_id'])) {
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             echo json_encode(['success' => false, 'message' => 'Non authentifié']);
             exit;
         }
 
         $medecinId = $_SESSION['medecin_id'];
         $medecin = $this->model->trouverParId($medecinId);
-        
+
         if (!$medecin) {
             echo json_encode(['success' => false, 'message' => 'Utilisateur non trouvé']);
             exit;
@@ -437,8 +576,8 @@ class MedecinController
     public function mettreAJourProfil(): void
     {
         header('Content-Type: application/json');
-        
-        if (!isset($_SESSION['medecin_id'])) {
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
             echo json_encode(['success' => false, 'message' => 'Non authentifié']);
             exit;
         }
@@ -469,26 +608,14 @@ class MedecinController
 
         // Gestion de la photo
         if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
-            $uploadDir = __DIR__ . '/../public/uploads/medecins/';
-            if (!file_exists($uploadDir)) {
-                mkdir($uploadDir, 0777, true);
-            }
-            $extension = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
-            $allowed = ['jpg', 'jpeg', 'png'];
-            if (in_array($extension, $allowed)) {
-                $filename = uniqid('medecin_') . '.' . $extension;
-                $destination = $uploadDir . $filename;
-                if (move_uploaded_file($_FILES['photo']['tmp_name'], $destination)) {
-                    // Supprimer l'ancienne photo
-                    if ($medecin['photo'] && file_exists(__DIR__ . '/../' . $medecin['photo'])) {
-                        unlink(__DIR__ . '/../' . $medecin['photo']);
-                    }
-                    $this->model->mettreAJourPhoto($id, 'public/uploads/medecins/' . $filename);
-                } else {
-                    $erreurs['photo'] = 'Erreur lors de l\'upload.';
+            $upload = UploadHelper::uploadPhoto($_FILES['photo'], 'medecins');
+            if ($upload['success']) {
+                if ($medecin['photo'] && file_exists(__DIR__ . '/../' . $medecin['photo'])) {
+                    unlink(__DIR__ . '/../' . $medecin['photo']);
                 }
+                $this->model->mettreAJourPhoto($id, $upload['filename']);
             } else {
-                $erreurs['photo'] = 'Format non autorisé. Utilisez JPG ou PNG.';
+                $erreurs['photo'] = $upload['error'];
             }
         }
 
@@ -515,26 +642,246 @@ class MedecinController
 
         $this->model->mettreAJourProfil($id, $nom, $prenom, $telephone);
         $this->model->mettreAJourEmail($id, $email);
-        
-        if (!empty($nouveauPassword)) {
-            $this->model->mettreAJourMotDePasse($id, $nouveauPassword);
+
+        // Mettre à jour l'email dans la table utilisateurs
+        $user = $this->utilisateurModel->findByEmail($medecin['email']);
+        if ($user) {
+            $db = Database::getInstance()->getConnection();
+            $sql = "UPDATE utilisateurs SET email = :email, nom = :nom WHERE id = :id";
+            $stmt = $db->prepare($sql);
+            $stmt->execute([
+                ':email' => $email,
+                ':nom' => $prenom . ' ' . $nom,
+                ':id' => $user['id']
+            ]);
         }
 
-        $_SESSION['medecin_nom'] = $nom . ' ' . $prenom;
+        if (!empty($nouveauPassword)) {
+            $hashedPassword = password_hash($nouveauPassword, PASSWORD_DEFAULT);
+            $this->model->mettreAJourMotDePasse($id, $hashedPassword);
+            // Mettre à jour le mot de passe dans la table utilisateurs
+            if ($user) {
+                $db = Database::getInstance()->getConnection();
+                $sql = "UPDATE utilisateurs SET mot_de_passe = :password WHERE id = :id";
+                $stmt = $db->prepare($sql);
+                $stmt->execute([
+                    ':password' => $hashedPassword,
+                    ':id' => $user['id']
+                ]);
+            }
+        }
+
+        $_SESSION['user_nom'] = $prenom . ' ' . $nom;
 
         echo json_encode(['success' => true, 'message' => 'Profil mis à jour avec succès.']);
         exit;
     }
+    
+    public function apiSousServices(): void
+    {
+        header('Content-Type: application/json');
+        $sousServices = $this->model->getSousServicesActifs();
+        echo json_encode($sousServices);
+        exit;
+    }
 
     /* ════════════════════════════════════════════════════════
-       DÉCONNEXION
+       PROCHAIN RDV
     ════════════════════════════════════════════════════════ */
 
-    public function deconnecter(): void
+    /**
+     * Retourne les créneaux disponibles pour une date donnée (AJAX GET).
+     */
+    public function getCreneauxDisponibles(): void
     {
-        session_unset();
-        session_destroy();
-        header('Location: medecin.php?action=connexion&deconnecte=1');
+        header('Content-Type: application/json');
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
+            echo json_encode(['success' => false, 'message' => 'Non authentifié']);
+            exit;
+        }
+
+        $medecinId = (int)$_SESSION['medecin_id'];
+        $date = trim($_GET['date'] ?? '');
+
+        if (!$date || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            echo json_encode(['success' => false, 'message' => 'Date invalide.']);
+            exit;
+        }
+
+        // Pas de RDV dans le passé
+        if ($date <= date('Y-m-d')) {
+            echo json_encode(['success' => false, 'message' => 'La date doit être dans le futur.', 'creneaux' => []]);
+            exit;
+        }
+
+        $creneaux = $this->model->getCreneauxDisponibles($medecinId, $date);
+        echo json_encode(['success' => true, 'creneaux' => $creneaux]);
+        exit;
+    }
+
+    /**
+     * Crée le prochain RDV depuis une consultation (AJAX POST).
+     */
+    public function fixerProchainRdvAjax(): void
+    {
+        header('Content-Type: application/json');
+
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
+            echo json_encode(['success' => false, 'message' => 'Non authentifié']);
+            exit;
+        }
+
+        $consultationId = (int)($_POST['consultation_id'] ?? 0);
+        $dateRdv        = trim($_POST['date_rdv'] ?? '');
+        $heureRdv       = trim($_POST['heure_rdv'] ?? '');
+        $motif          = trim($_POST['motif'] ?? '');
+
+        if (!$consultationId) {
+            echo json_encode(['success' => false, 'message' => 'Consultation introuvable.']);
+            exit;
+        }
+        if (!$dateRdv || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateRdv)) {
+            echo json_encode(['success' => false, 'message' => 'Date invalide.']);
+            exit;
+        }
+        if (!$heureRdv || !preg_match('/^\d{2}:\d{2}$/', $heureRdv)) {
+            echo json_encode(['success' => false, 'message' => 'Heure invalide.']);
+            exit;
+        }
+        if ($dateRdv <= date('Y-m-d')) {
+            echo json_encode(['success' => false, 'message' => 'La date doit être dans le futur.']);
+            exit;
+        }
+
+        $result = $this->model->fixerProchainRdv($consultationId, $dateRdv, $heureRdv, $motif);
+        echo json_encode($result);
+        exit;
+    }
+
+    public function getHistorique(): void
+    {
+        header('Content-Type: application/json');
+        if (!AuthHelper::peutAccederEspaceMedecin()) {
+            echo json_encode(['redirect' => 'medecin.php?action=connexion']);
+            exit;
+        }
+
+        $medecinId  = $_SESSION['medecin_id'];
+        $page       = max(1, (int)($_GET['page'] ?? 1));
+        $perPage    = 15;
+        $statut     = trim($_GET['statut'] ?? '');
+        $dateDebut  = trim($_GET['date_debut'] ?? '');
+        $dateFin    = trim($_GET['date_fin'] ?? '');
+
+        $result = $this->model->historiquePagine($medecinId, $page, $perPage, $statut, $dateDebut, $dateFin);
+
+        // Formater les dates pour l'affichage
+        foreach ($result['data'] as &$row) {
+            $row['date_consultation'] = $row['heure_passage_estimee']
+                ? date('d/m/Y', strtotime($row['heure_passage_estimee'])) : '—';
+            $row['heure_estimee_fmt'] = $row['heure_passage_estimee']
+                ? date('H:i', strtotime($row['heure_passage_estimee'])) : '—';
+            $row['heure_debut_fmt'] = $row['heure_debut_reelle']
+                ? date('H:i', strtotime($row['heure_debut_reelle'])) : '—';
+            $row['heure_fin_fmt'] = $row['heure_fin_reelle']
+                ? date('H:i', strtotime($row['heure_fin_reelle'])) : '—';
+            // Durée réelle
+            if ($row['heure_debut_reelle'] && $row['heure_fin_reelle']) {
+                $duree = (strtotime($row['heure_fin_reelle']) - strtotime($row['heure_debut_reelle'])) / 60;
+                $row['duree_fmt'] = round($duree) . ' min';
+            } else {
+                $row['duree_fmt'] = '—';
+            }
+        }
+        unset($row);
+
+        echo json_encode(array_merge(['success' => true], $result));
+        exit;
+    }
+
+    /**
+     * Retourne l'évolution des consultations sur N jours pour les graphiques du médecin.
+     */
+    public function getStatsEvolution(): void
+    {
+        header('Content-Type: application/json');
+        $medecinId = $_SESSION['medecin_id'] ?? null;
+        if (!$medecinId) {
+            echo json_encode(['success' => false, 'redirect' => 'medecin.php?action=connexion']);
+            exit;
+        }
+        $jours = max(7, min(365, (int)($_GET['jours'] ?? 7)));
+        $evolution = $this->model->statsEvolution((int)$medecinId, $jours);
+        $totaux    = $this->model->statsTotalesMedecin((int)$medecinId, $jours);
+        echo json_encode([
+            'success'   => true,
+            'jours'     => $jours,
+            'evolution' => $evolution,
+            'totaux'    => $totaux,
+        ]);
+        exit;
+    }
+
+    /**
+     * Retourne l'évolution du temps d'attente moyen pour la section stats médecin
+     */
+    public function getTempsAttenteEvolution(): void
+    {
+        header('Content-Type: application/json');
+        $medecinId = $_SESSION['medecin_id'] ?? null;
+        if (!$medecinId) {
+            echo json_encode(['success' => false, 'redirect' => 'medecin.php?action=connexion']);
+            exit;
+        }
+        // Récupérer l'affectation du médecin pour avoir le sous-service
+        $affectation = $this->model->getSousServiceMedecin((int)$medecinId);
+        if (!$affectation || empty($affectation['ss_id'])) {
+            echo json_encode(['success' => false, 'message' => 'Aucun sous-service associé.']);
+            exit;
+        }
+        $sousServiceId = (int)$affectation['ss_id'];
+        $jours = max(7, min(365, (int)($_GET['jours'] ?? 30)));
+        $evolution = $this->model->evolutionTempsAttente($sousServiceId, $jours);
+        $global    = $this->model->tempsAttenteGlobal($sousServiceId);
+        echo json_encode([
+            'success'         => true,
+            'evolution'       => $evolution,
+            'global'          => $global,
+            'sous_service'    => $affectation['ss_nom'] ?? '',
+            'jours'           => $jours,
+        ]);
+        exit;
+    }
+
+    /**
+     * Fournit les donnees de consultation pour l'onglet "Mes consultations" du dashboard admin.
+     * Accessible uniquement par un admin-medecin.
+     */
+    public function getDashboardMedecinData(): void
+    {
+        header('Content-Type: application/json');
+        if (!AuthHelper::estAdminMedecin()) {
+            echo json_encode(['success' => false, 'message' => 'Acces refuse.']);
+            exit;
+        }
+        $medecinId   = (int)$_SESSION['medecin_id'];
+        $affectation = $this->model->getSousServiceMedecin($medecinId);
+        $medecin     = $this->model->trouverParId($medecinId);
+        $stats       = [];
+        $consultations = [];
+        if ($affectation) {
+            $ssId          = (int)$affectation['ss_id'];
+            $stats         = $this->model->statsJour($ssId);
+            $consultations = $this->model->consultationsDuJour($ssId, $medecinId);
+        }
+        echo json_encode([
+            'success'       => true,
+            'medecin'       => $medecin,
+            'affectation'   => $affectation,
+            'stats'         => $stats,
+            'consultations' => $consultations,
+        ]);
         exit;
     }
 }

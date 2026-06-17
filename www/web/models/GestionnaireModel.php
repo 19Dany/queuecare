@@ -179,17 +179,36 @@ class GestionnaireModel
 
     public function fileAttente(int $ssId): array
     {
+        // Auto-migration : ajoute priorite_retour si la colonne n'existe pas encore
+        $check = $this->db->query(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'consultations'
+               AND COLUMN_NAME = 'priorite_retour'"
+        );
+        if ((int)$check->fetchColumn() === 0) {
+            $this->db->exec(
+                "ALTER TABLE consultations
+                 ADD COLUMN priorite_retour tinyint(1) NOT NULL DEFAULT 0
+                 AFTER duree_pause_cumulee"
+            );
+        }
+
         $stmt = $this->db->prepare(
-            'SELECT c.id, c.rang, c.statut, c.mode_prise, c.heure_passage_estimee, c.motif,
+            'SELECT c.id, c.rang, c.statut, c.mode_prise, c.heure_passage_estimee,
+                    c.heure_pause, c.motif_pause, c.motif, c.priorite_retour,
                     p.nom AS patient_nom, p.prenom AS patient_prenom, p.telephone,
                     CONCAT(m.prenom, " ", m.nom) AS medecin_nom
              FROM consultations c
              JOIN patients p ON p.id = c.patient_id
              LEFT JOIN medecins m ON m.id = c.medecin_id
              WHERE c.sous_service_id = :ss
-               AND c.statut IN ("en_attente", "confirme", "en_cours")
+               AND c.statut IN ("en_attente", "confirme", "en_cours", "en_pause")
                AND DATE(c.heure_emission) = CURDATE()
-             ORDER BY c.rang'
+             ORDER BY
+               CASE WHEN c.statut IN ("en_cours","en_pause") THEN 0 ELSE 1 END ASC,
+               c.priorite_retour DESC,
+               c.rang ASC'
         );
         $stmt->execute([':ss' => $ssId]);
         return $stmt->fetchAll();
@@ -220,6 +239,69 @@ class GestionnaireModel
     {
         $stmt = $this->db->prepare('UPDATE consultations SET statut = :s WHERE id = :id');
         return $stmt->execute([':s' => $statut, ':id' => $consultationId]);
+    }
+
+    /**
+     * Reprend une consultation en_pause → en_cours (accessible au gestionnaire).
+     */
+    public function reprendreConsultation(int $consultationId): bool
+    {
+        $stmt = $this->db->prepare(
+            'UPDATE consultations
+             SET statut              = "en_cours",
+                 duree_pause_cumulee = duree_pause_cumulee + TIMESTAMPDIFF(SECOND, heure_pause, NOW()),
+                 heure_pause         = NULL,
+                 motif_pause         = NULL,
+                 priorite_retour     = 0
+             WHERE id = :id AND statut = "en_pause"'
+        );
+        return $stmt->execute([':id' => $consultationId]) && $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Absence automatique : consultations en attente non démarrées 10 min après
+     * la fin de la précédente, et en_pause depuis plus de 30 min.
+     */
+    public function verifierAbsencesAuto(int $ssId): int
+    {
+        $affected = 0;
+
+        // 1. en_attente/confirme non démarrées 10 min après fin de la précédente
+        $stmt = $this->db->prepare(
+            'UPDATE consultations c
+             JOIN (
+               SELECT medecin_id, MAX(heure_fin_reelle) AS derniere_fin
+               FROM consultations
+               WHERE sous_service_id = :ss
+                 AND statut = "traite"
+                 AND CAST(heure_emission AS DATE) = CURDATE()
+                 AND heure_fin_reelle IS NOT NULL
+               GROUP BY medecin_id
+             ) fin ON fin.medecin_id = c.medecin_id
+             SET c.statut = "absent"
+             WHERE c.sous_service_id = :ss2
+               AND c.statut IN ("en_attente","confirme")
+               AND CAST(c.heure_emission AS DATE) = CURDATE()
+               AND c.heure_debut_reelle IS NULL
+               AND fin.derniere_fin IS NOT NULL
+               AND TIMESTAMPDIFF(MINUTE, fin.derniere_fin, NOW()) >= 10'
+        );
+        $stmt->execute([':ss' => $ssId, ':ss2' => $ssId]);
+        $affected += $stmt->rowCount();
+
+        // 2. en_pause depuis plus de 30 minutes → absent
+        $stmt2 = $this->db->prepare(
+            'UPDATE consultations
+             SET statut = "absent"
+             WHERE sous_service_id = :ss
+               AND statut = "en_pause"
+               AND heure_pause IS NOT NULL
+               AND TIMESTAMPDIFF(MINUTE, heure_pause, NOW()) >= 30'
+        );
+        $stmt2->execute([':ss' => $ssId]);
+        $affected += $stmt2->rowCount();
+
+        return $affected;
     }
 
     public function appelerSuivant(int $ssId)
@@ -328,10 +410,74 @@ class GestionnaireModel
      * Le système assigne automatiquement le médecin le moins chargé
      * Pas besoin de sélectionner un médecin manuellement
      */
+    /**
+     * Calcule l'heure de passage estimée et l'heure de fin estimée pour une nouvelle
+     * consultation sur un jour donné, en se basant sur la dernière consultation
+     * planifiée ce jour-là et les horaires d'ouverture du service.
+     *
+     * Règles :
+     *  - 1er patient du jour  → debut = heure d'ouverture, fin = debut + duree_estimee
+     *  - Patient suivant      → debut = fin du précédent, fin = debut + duree_estimee
+     *
+     * @return array{heure_debut: string, heure_fin: string}  (format 'Y-m-d H:i:s')
+     */
+    public function calculerHeurePassageEstimee(int $ssId, string $date): array
+    {
+        $dureeEstimee = $this->getDureeEstimee($ssId); // en secondes
+
+        // Horaires d'ouverture du service
+        $horaires = $this->getServiceHoraires($ssId);
+        $heureOuverture = $horaires['horaires_ouverture'] ?? '08:00:00';
+
+        // Trouver la fin estimée de la dernière consultation planifiée ce jour
+        $stmt = $this->db->prepare(
+            'SELECT heure_passage_estimee, heure_debut_reelle, duree_estimee
+             FROM consultations
+             WHERE sous_service_id = :ss
+               AND DATE(heure_passage_estimee) = :date
+               AND statut NOT IN ("annule","absent")
+             ORDER BY heure_passage_estimee DESC
+             LIMIT 1'
+        );
+        $stmt->execute([':ss' => $ssId, ':date' => $date]);
+        $last = $stmt->fetch();
+
+        if ($last && $last['heure_passage_estimee']) {
+            // Durée moyenne de la consultation précédente (base du calcul)
+            $dureePrec = (int)($last['duree_estimee'] ?: $dureeEstimee);
+
+            // Si la consultation précédente a déjà démarré (heure_debut_reelle
+            // renseignée), on se base sur son heure de DÉBUT RÉELLE + durée
+            // moyenne, plus fiable que l'heure estimée car elle reflète le
+            // retard ou l'avance effectif du médecin. Sinon, on garde l'heure
+            // de début ESTIMÉE comme base de calcul.
+            $heureBase = $last['heure_debut_reelle'] ?: $last['heure_passage_estimee'];
+            $heureDebutTs = strtotime($heureBase) + $dureePrec;
+        } else {
+            // Premier patient : debut = heure d'ouverture, sauf si elle est déjà
+            // passée (cas où on enregistre une consultation en cours de journée) :
+            // dans ce cas on part de l'heure actuelle pour ne pas placer le patient
+            // dans le passé.
+            $heureOuvertureTs = strtotime($date . ' ' . $heureOuverture);
+            $maintenantTs = time();
+            $heureDebutTs = ($date === date('Y-m-d') && $heureOuvertureTs < $maintenantTs)
+                ? $maintenantTs
+                : $heureOuvertureTs;
+        }
+
+        $heureFinTs = $heureDebutTs + $dureeEstimee;
+
+        return [
+            'heure_debut' => date('Y-m-d H:i:s', $heureDebutTs),
+            'heure_fin'   => date('Y-m-d H:i:s', $heureFinTs),
+        ];
+    }
+
     public function enregistrerConsultationManuelle(array $d): int
     {
         $ssId      = (int)$d['sous_service_id'];
         $patientId = (int)$d['patient_id'];
+        $date      = $d['date'] ?? date('Y-m-d'); // aujourd'hui par défaut
         
         if ($this->patientADejaConsultationAujourdhui($patientId, $ssId)) {
             return 0;
@@ -348,8 +494,11 @@ class GestionnaireModel
 
         $rang = $this->prochainRang($ssId);
         $dureeEstimee = $this->getDureeEstimee($ssId);
-        $heureDebut = date('Y-m-d H:i:s');
         $motif = !empty($d['motif']) ? htmlspecialchars(trim($d['motif'])) : null;
+
+        // Calcul des heures basé sur la logique séquentielle
+        $heures = $this->calculerHeurePassageEstimee($ssId, $date);
+        $heurePassage = $heures['heure_debut'];
 
         $sql = "INSERT INTO consultations 
                 (patient_id, sous_service_id, medecin_id, statut, rang, mode_prise, 
@@ -367,7 +516,7 @@ class GestionnaireModel
             ':statut'               => $statut,
             ':rang'                 => $rang,
             ':mode_prise'           => $modePriseDB,
-            ':heure_passage_estimee'=> $heureDebut,
+            ':heure_passage_estimee'=> $heurePassage,
             ':duree_estimee'        => $dureeEstimee,
             ':motif'                => $motif
         ]);
@@ -460,5 +609,119 @@ class GestionnaireModel
         );
         $stmt->execute([':ss' => $ssId, ':date' => $date]);
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Consultations d'un sous-service sur une plage de dates (pour le planning semaine)
+     */
+    public function consultationsParPeriode(int $ssId, string $dateDebut, string $dateFin): array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT c.id, c.rang, c.statut, c.mode_prise, c.duree_estimee,
+                    c.heure_passage_estimee, c.heure_debut_reelle, c.heure_fin_reelle, c.motif,
+                    c.medecin_id,
+                    p.nom AS patient_nom, p.prenom AS patient_prenom, p.telephone,
+                    CONCAT(m.prenom, " ", m.nom) AS medecin_nom
+             FROM consultations c
+             JOIN patients p ON p.id = c.patient_id
+             LEFT JOIN medecins m ON m.id = c.medecin_id
+             WHERE c.sous_service_id = :ss
+               AND DATE(c.heure_passage_estimee) BETWEEN :debut AND :fin
+             ORDER BY c.heure_passage_estimee'
+        );
+        $stmt->execute([':ss' => $ssId, ':debut' => $dateDebut, ':fin' => $dateFin]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Jours de travail d'un médecin (numéros 1=lundi … 7=dimanche)
+     */
+    public function getJoursTravailMedecin(int $medecinId): array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT jour_semaine FROM medecin_jours_travail WHERE medecin_id = :mid AND actif = 1'
+        );
+        $stmt->execute([':mid' => $medecinId]);
+        return array_column($stmt->fetchAll(), 'jour_semaine');
+    }
+
+    /**
+     * Horaires du service associé à un sous-service
+     */
+    public function getServiceHoraires(int $ssId): array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT s.horaires_ouverture, s.horaires_fermeture,
+                    s.pause_debut, s.pause_fin, s.jours_fermeture
+             FROM sous_services ss
+             JOIN services s ON s.id = ss.service_id
+             WHERE ss.id = :ss LIMIT 1'
+        );
+        $stmt->execute([':ss' => $ssId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: [
+            'horaires_ouverture' => '08:00:00',
+            'horaires_fermeture' => '18:00:00',
+            'pause_debut'        => null,
+            'pause_fin'          => null,
+            'jours_fermeture'    => '',
+        ];
+    }
+
+    /**
+     * Historique paginé des consultations du sous-service (toutes dates passées)
+     */
+    public function historiquePagine(int $ssId, int $page, int $perPage, string $statut = '', string $dateDebut = '', string $dateFin = ''): array
+    {
+        $conditions = ['c.sous_service_id = :ss', '(DATE(c.heure_passage_estimee) < CURDATE() OR c.statut IN ("traite","annule","absent"))'];
+        $params = [':ss' => $ssId];
+
+        if ($statut !== '') {
+            $conditions[] = 'c.statut = :statut';
+            $params[':statut'] = $statut;
+        }
+        if ($dateDebut !== '') {
+            $conditions[] = 'DATE(c.heure_passage_estimee) >= :ddebut';
+            $params[':ddebut'] = $dateDebut;
+        }
+        if ($dateFin !== '') {
+            $conditions[] = 'DATE(c.heure_passage_estimee) <= :dfin';
+            $params[':dfin'] = $dateFin;
+        }
+
+        $where = implode(' AND ', $conditions);
+
+        $stmtCount = $this->db->prepare("SELECT COUNT(*) FROM consultations c WHERE $where");
+        $stmtCount->execute($params);
+        $total = (int)$stmtCount->fetchColumn();
+
+        $offset = ($page - 1) * $perPage;
+        $params[':limit']  = $perPage;
+        $params[':offset'] = $offset;
+
+        $stmt = $this->db->prepare(
+            "SELECT c.id, c.rang, c.statut, c.mode_prise, c.motif,
+                    c.heure_passage_estimee, c.heure_debut_reelle, c.heure_fin_reelle,
+                    p.nom AS patient_nom, p.prenom AS patient_prenom, p.telephone,
+                    CONCAT(m.prenom, ' ', m.nom) AS medecin_nom
+             FROM consultations c
+             JOIN patients p ON p.id = c.patient_id
+             LEFT JOIN medecins m ON m.id = c.medecin_id
+             WHERE $where
+             ORDER BY c.heure_passage_estimee DESC
+             LIMIT :limit OFFSET :offset"
+        );
+        foreach ($params as $key => $val) {
+            $type = in_array($key, [':limit', ':offset']) ? PDO::PARAM_INT : PDO::PARAM_STR;
+            $stmt->bindValue($key, $val, $type);
+        }
+        $stmt->execute();
+
+        return [
+            'data'      => $stmt->fetchAll(),
+            'total'     => $total,
+            'page'      => $page,
+            'per_page'  => $perPage,
+            'last_page' => max(1, (int)ceil($total / $perPage)),
+        ];
     }
 }

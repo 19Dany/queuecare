@@ -2,16 +2,28 @@
 /**
  * medecin.php — Point d'entrée espace médecin
  * Routeur principal pour toutes les actions des médecins
+ * 
+ * ACCÈS : Médecins et Administrateurs (Directeur)
  */
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+require_once __DIR__ . '/helpers/AuthHelper.php';
+
+// L'inscription est publique : pas de vérification d'accès
+$action = $_GET['action'] ?? 'dashboard';
+
+if ($action !== 'inscription') {
+    // Vérification des droits d'accès
+    if (!AuthHelper::peutAccederEspaceMedecin()) {
+        header('Location: accueil.php');
+        exit;
+    }
+    // Vérification du timeout de session
+    AuthHelper::verifierSession('medecin.php?action=connexion');
 }
 
+// Configuration
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
-
-$action = $_GET['action'] ?? 'connexion';
 
 $allowedActions = [
     // Authentification
@@ -22,10 +34,22 @@ $allowedActions = [
     'get_consultations_data', 'get_stats_data',
     'demarrer_consultation_ajax', 'terminer_consultation_ajax',
     'marquer_absent_ajax', 'annuler_toutes_ajax',
+    // Pause / Reprise
+    'mettre_en_pause_ajax', 'reprendre_consultation_ajax',
     // Planning
     'get_planning_medecin',
     // Profil
-    'get_profil_data', 'mettre_a_jour_profil'
+    'get_profil_data', 'mettre_a_jour_profil', 'verifier_mdp',
+    // Historique
+    'get_historique',
+    // Prochain RDV
+    'get_creneaux_disponibles',
+    'fixer_prochain_rdv_ajax',
+    // Statistiques évolution (graphiques)
+    'get_stats_evolution',
+    // Temps d'attente moyen
+    'get_temps_attente_evolution',
+    'get_dashboard_medecin_data',
 ];
 
 if (!in_array($action, $allowedActions)) {
@@ -88,6 +112,14 @@ switch ($action) {
     case 'marquer_absent_ajax':
         $ctrl->marquerAbsentAjax();
         break;
+
+    case 'mettre_en_pause_ajax':
+        $ctrl->mettreEnPauseAjax();
+        break;
+
+    case 'reprendre_consultation_ajax':
+        $ctrl->reprendreConsultationAjax();
+        break;
     
     case 'annuler_toutes_ajax':
         $ctrl->annulerToutesAjax();
@@ -106,8 +138,38 @@ switch ($action) {
     case 'mettre_a_jour_profil':
         $ctrl->mettreAJourProfil();
         break;
+
+    case 'verifier_mdp':
+        $ctrl->verifierMdp();
+        break;
     
+    // Historique
+    case 'get_historique':
+        $ctrl->getHistorique();
+        break;
+
+    // Prochain RDV
+    case 'get_creneaux_disponibles':
+        $ctrl->getCreneauxDisponibles();
+        break;
+
+    case 'fixer_prochain_rdv_ajax':
+        $ctrl->fixerProchainRdvAjax();
+        break;
+
+    case 'get_stats_evolution':
+        $ctrl->getStatsEvolution();
+        break;
+
+    case 'get_temps_attente_evolution':
+        $ctrl->getTempsAttenteEvolution();
+        break;
+
+    case 'get_dashboard_medecin_data':
+        $ctrl->getDashboardMedecinData();
+        break;
+
     default:
-        $ctrl->afficherConnexion();
+        $ctrl->afficherDashboard();
         break;
 }
