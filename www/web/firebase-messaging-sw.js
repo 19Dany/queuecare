@@ -51,14 +51,14 @@ self.addEventListener('fetch', (event) => {
 messaging.onBackgroundMessage((payload) => {
     console.log('[Service Worker] Message reçu:', payload);
 
-    const notificationTitle = payload.notification ? .title || 'QueueCare';
+    const notificationTitle = payload.notification?.title || 'QueueCare';
     const notificationOptions = {
-        body: payload.notification ? .body || 'Nouvelle notification',
+        body: payload.notification?.body || 'Nouvelle notification',
         icon: '/public/images/logo.png',
         badge: '/public/images/badge.png',
         vibrate: [200, 100, 200],
         data: payload.data || {},
-        actions: payload.data ? .actions || [{
+        actions: payload.data?.actions || [{
                 action: 'open',
                 title: 'Voir'
             },
@@ -70,7 +70,7 @@ messaging.onBackgroundMessage((payload) => {
     };
 
     // Ajouter l'image si présente
-    if (payload.notification ? .image) {
+    if (payload.notification?.image) {
         notificationOptions.image = payload.notification.image;
     }
 
@@ -83,7 +83,7 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
 
-    const urlToOpen = event.notification.data ? .url || '/';
+    const urlToOpen = event.notification.data?.url || '/';
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true })
